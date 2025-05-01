@@ -2,12 +2,14 @@
 
 A web-based debugging interface with an embedded code editor using WebContainer.
 
+![Screenshot](./demo.gif)
+
 ## Features
 
 - In-browser code editor powered by CodeMirror
 - WebContainer for running tests in the browser
-- Time-travel debugging for JavaScript tests
-- Step-by-step execution visualization
+- Uses babel to inject intrumentation into code
+- Step-by-step execution visualization, can step forward and back
 
 ## How It Works
 
