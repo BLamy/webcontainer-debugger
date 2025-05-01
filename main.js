@@ -1,4 +1,4 @@
-import './style.css'
+import './index.css'
 import { WebContainer } from '@webcontainer/api';
 import { DebuggerPanel } from './DebuggerPanel.js';
 import { files } from 'virtual:webcontainer-files';
@@ -109,29 +109,35 @@ async function updateEditorHighlight(file, line) {
       
       if (tabButton) {
         console.log(`[Highlight] Found tab for '${normalizedFile}'. Simulating click.`);
-        // Create a Promise that will resolve when the file is loaded
-        const fileLoadPromise = new Promise(resolve => {
-          const listener = async () => {
-            try {
-              if (tabButton.__clickHandlerPromise) {
-                await tabButton.__clickHandlerPromise;
-              }
-              // Wait a bit more for rendering
-              await new Promise(r => setTimeout(r, 100));
-              resolve();
-            } catch (err) {
-              console.error(`[Highlight] Error in tab click handler:`, err);
-              resolve(); // Resolve anyway to prevent hanging
-            }
-          };
-          
-          tabButton.addEventListener('click', listener, { once: true });
-          tabButton.click();
-        });
+        // Directly update active tab styling
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tabButton.classList.add('active');
         
-        // Wait for file loading to complete
-        await fileLoadPromise;
-        console.log(`[Highlight] File '${normalizedFile}' should now be loaded.`);
+        // Update currentFile before reading the file
+        currentFile = tabButton.dataset.file;
+        
+        try {
+          // Read the file content directly instead of relying on click handler
+          console.log(`[Highlight] Reading file '/${currentFile}'...`);
+          const newContent = await webcontainerInstance.fs.readFile('/' + currentFile, 'utf-8');
+          console.log(`[Highlight] Read success. Updating editor content.`);
+          
+          // Update content with clear effects
+          editorView.dispatch({
+            changes: { from: 0, to: editorView.state.doc.length, insert: newContent },
+            effects: clearHighlightEffect.of(null)
+          });
+          console.log(`[Highlight] Content updated for ${currentFile}.`);
+          
+          // Small delay to ensure content is loaded before highlighting
+          await new Promise(r => setTimeout(r, 50));
+        } catch (fileErr) {
+          console.error(`[Highlight] Failed to read file '${currentFile}':`, fileErr);
+          editorView.dispatch({
+            changes: { from: 0, to: editorView.state.doc.length, insert: `// Error loading ${currentFile}` },
+            effects: clearHighlightEffect.of(null)
+          });
+        }
       } else {
         console.warn(`[Highlight] Tab for file '${normalizedFile}' not found. Attempting direct load.`);
         try {
@@ -215,67 +221,74 @@ async function updateEditorHighlight(file, line) {
   }
 }
 
-// Create placeholder HTML
-document.querySelector('#app').innerHTML = `
-  <div class="app-container">
-    <div class="main-content">
-      <div class="editor-section">
-        <div class="editor-header">
-          <div class="tabs">
-            <button class="tab active" data-file="utils.js">utils.js</button>
-            <button class="tab" data-file="utils.test.js">utils.test.js</button>
+document.querySelector('#app').innerHTML = /* html */ `
+  <div class="flex flex-col h-screen w-full font-sans text-[#e0e0e0] bg-[#1e1e1e]">
+    <!-- main split -->
+    <div class="flex flex-1 overflow-hidden min-h-0">
+      <!-- editor pane -->
+      <div class="flex flex-col flex-1 min-w-[300px] overflow-hidden">
+        <!-- header -->
+        <div class="flex justify-between shrink-0 bg-[#252526] border-b border-[#333]">
+          <div class="flex bg-[#252526]">
+            <button class="tab px-4 py-2 text-sm text-[#cccccc]" data-file="utils.js">utils.js</button>
+            <button class="tab px-4 py-2 text-sm text-[#cccccc]" data-file="utils.test.js">utils.test.js</button>
           </div>
-          <div class="editor-actions">
-            <button class="toggle-debugger" title="Toggle Debugger">🐞</button>
+          <div class="flex items-center pr-2">
+            <button title="Toggle Debugger"
+                    class="toggle-debugger w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] text-[#cccccc] hover:bg-[#4c4c4c] text-base">🐞</button>
           </div>
         </div>
-        <div class="editor-container">
-          <div id="editor"></div>
+
+        <!-- codemirror host -->
+        <div class="relative flex-1 overflow-hidden bg-[#1e1e1e]">
+          <div id="editor" class="absolute inset-0"></div>
         </div>
       </div>
-      
-      <div class="debugger-section" id="debugger-section">
-        <div class="debugger-tabs">
-          <button class="debugger-tab active" data-tab="debugger">DEBUGGER</button>
-          <button class="debugger-tab" data-tab="logs">LOGS</button>
+
+      <!-- debugger pane -->
+      <div id="debugger-section"
+           class="flex flex-col w-[400px] border-l border-[#333] bg-[#252526] overflow-hidden">
+        <!-- tabs -->
+        <div class="flex bg-[#333] border-b border-[#444]">
+          <button class="debugger-tab px-4 py-2 text-xs text-[#cccccc]" data-tab="debugger">DEBUGGER</button>
+          <button class="debugger-tab px-4 py-2 text-xs text-[#cccccc]" data-tab="logs">LOGS</button>
         </div>
-        
-        <div class="debugger-tab-content active" data-content="debugger">
-          <div class="debugger-layout">
-            <div class="test-list-panel">
-              <div class="test-list-header">TESTS</div>
-              <div class="test-list-container"></div>
+
+        <!-- debugger content -->
+        <div class="debugger-tab-content flex flex-col flex-1 overflow-auto active" data-content="debugger">
+          <div class="flex flex-col h-full">
+            <!-- test list -->
+            <div class="h-[300px] overflow-auto border-b border-[#333]">
+              <div class="test-list-container h-[calc(100%-30px)] overflow-y-auto"></div>
             </div>
-            <div class="debugger-panel" id="debugger-container">
-              <div class="debugger-panel-placeholder">
-                Select a test to debug
-              </div>
+            <!-- debugger panel -->
+            <div id="debugger-container" class="flex-1 overflow-auto relative w-full h-full">
+              <div class="text-[#888] text-sm">Select a test to debug</div>
             </div>
           </div>
         </div>
-        
-        <div class="debugger-tab-content" data-content="logs">
-          <div class="test-output"></div>
+
+        <!-- logs content -->
+        <div class="debugger-tab-content flex-1 overflow-auto" data-content="logs">
+          <div class="test-output flex flex-col flex-1"></div>
         </div>
       </div>
     </div>
-    
-    <div class="status-bar">
-      <div class="status-indicator-container">
-        <span class="status-dot"></span>
+
+    <!-- status bar -->
+    <div class="flex justify-between items-center bg-[#007acc] text-white px-[10px] text-[12px] h-[22px] px-2">
+      <div class="flex items-center gap-2">
+        <span class="status-dot w-[8px] h-[8px] rounded-full bg-[#3BB446] mr-[6px]"></span>
         <span class="status-text">Ready</span>
       </div>
-      <div class="status-position" id="status-position">
-       
-      </div>
-      <div class="status-stats">
-        <span class="stats-item">TESTS: <span class="stats-passing">0</span>/<span class="stats-total">0</span></span>
-        <span class="stats-time">Last Run: 0 MS</span>
+      <div id="status-position" class="text-center opacity-80"></div>
+      <div class="flex gap-[10px] ">
+        <span class="stats-item">TESTS: <span class="stats-passing">0</span>/<span class="stats-total">8</span></span>
+        <span class="stats-time opacity-80">Last Run: --ms</span>
       </div>
     </div>
   </div>
 `;
-
 // Get elements
 // const textareaEl = document.querySelector('textarea'); // No longer needed
 const editorEl = document.getElementById('editor');

@@ -17,21 +17,23 @@ export class DebuggerPanel {
   }
 
   render() {
-    this.container.innerHTML = `
-      <div class="wallaby-debugger">
-        <div class="debugger-controls">
-          <button class="btn-first" title="First Step">⏮</button>
-          <button class="btn-prev" title="Previous Step">◀</button>
-          <div class="step-counter">Step ${this.currentStep + 1} of ${this.steps.length}</div>
-          <button class="btn-next" title="Next Step">▶</button>
-          <button class="btn-last" title="Last Step">⏭</button>
-        </div>
-        <div class="timeline">
-          <div class="timeline-track"></div>
-        </div>
-        <div class="variables-panel"></div>
+    this.container.innerHTML = /* html */ `
+    <div class="wallaby-debugger flex flex-col h-full w-full overflow-hidden bg-[#252526] text-[#e0e0e0]">
+      <div class="debugger-controls flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-b border-[#333]">
+        <button class="btn-first w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="First Step">⏮️</button>
+        <button class="btn-prev  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Previous Step">◀️</button>
+        <div class="step-counter flex-1 text-center text-xs text-[#cccccc]">Step ${this.currentStep + 1} of ${this.steps.length}</div>
+        <button class="btn-next  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Next Step">▶️</button>
+        <button class="btn-last  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Last Step">⏭️</button>
       </div>
-    `;
+  
+      <div class="timeline h-[30px] flex items-center px-3 bg-[#2a2a2a]">
+        <div class="timeline-track w-full h-1 bg-[#3c3c3c] relative flex items-center justify-between"></div>
+      </div>
+  
+      <div class="variables-panel flex-1 overflow-y-auto pb-3"></div>
+    </div>
+  `;
   }
 
   setupListeners() {
@@ -81,8 +83,13 @@ export class DebuggerPanel {
         relativePath = relativePath.substring(1);
       }
       
-      // Ensure line is a valid number
-      const lineNumber = step.line ? parseInt(step.line, 10) : 1;
+      // If the file path doesn't include extension, try to add .js
+      if (relativePath && !relativePath.includes('.')) {
+        relativePath = `${relativePath}.js`;
+      }
+      
+      // Ensure line is a valid number (default to line 0 if not provided)
+      const lineNumber = step.line ? parseInt(step.line, 10) : 0;
       
       // Log the callback call for debugging
       console.log(`[DebuggerPanel] Calling onStepChange with file='${relativePath}', line=${lineNumber}`);
