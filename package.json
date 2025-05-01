@@ -13,6 +13,7 @@
     "@codemirror/state": "^6.2.1",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.21.0",
+    "@tailwindcss/postcss": "^4.1.5",
     "@webcontainer/api": "^1.1.8",
     "codemirror": "^6.0.1"
   },
