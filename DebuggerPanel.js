@@ -18,23 +18,16 @@ export class DebuggerPanel {
 
   render() {
     this.container.innerHTML = `
-      <div class="debugger-panel">
-        <div class="debugger-header">
-          <h3>Time Travel Debugger</h3>
-          <div class="step-counter">Step ${this.currentStep + 1} of ${this.steps.length}</div>
-        </div>
+      <div class="wallaby-debugger">
         <div class="debugger-controls">
           <button class="btn-first" title="First Step">⏮</button>
           <button class="btn-prev" title="Previous Step">◀</button>
+          <div class="step-counter">Step ${this.currentStep + 1} of ${this.steps.length}</div>
           <button class="btn-next" title="Next Step">▶</button>
           <button class="btn-last" title="Last Step">⏭</button>
         </div>
         <div class="timeline">
           <div class="timeline-track"></div>
-        </div>
-        <div class="code-location">
-          <div class="file"></div>
-          <div class="line"></div>
         </div>
         <div class="variables-panel"></div>
       </div>
@@ -76,7 +69,6 @@ export class DebuggerPanel {
     this.container.querySelector('.step-counter').textContent = `Step ${this.currentStep + 1} of ${this.steps.length}`;
     this.updateTimeline();
     this.updateVariables();
-    this.updateCodeLocation();
 
     const step = this.steps[this.currentStep];
     if (step && this.onStepChange) {
@@ -97,6 +89,9 @@ export class DebuggerPanel {
       
       // Call the callback with normalized path and line number
       this.onStepChange(relativePath, lineNumber);
+      
+      // Update status bar position
+      this.updateStatusPosition(relativePath, lineNumber);
     }
   }
 
@@ -111,6 +106,7 @@ export class DebuggerPanel {
         point.className += ' active';
       }
       point.addEventListener('click', () => this.goToStep(index));
+      point.setAttribute('title', `Step ${index + 1}`);
       track.appendChild(point);
     });
   }
@@ -149,12 +145,11 @@ export class DebuggerPanel {
     });
   }
 
-  updateCodeLocation() {
-    const step = this.steps[this.currentStep];
-    if (!step) return;
-    
-    this.container.querySelector('.file').textContent = `File: ${step.file}`;
-    this.container.querySelector('.line').textContent = `Line: ${step.line}`;
+  updateStatusPosition(file, line) {
+    const statusPosition = document.getElementById('status-position');
+    if (statusPosition) {
+      statusPosition.textContent = `${file}:${line}`;
+    }
   }
 
   formatValue(value) {
@@ -184,113 +179,3 @@ export class DebuggerPanel {
     return String(value);
   }
 }
-
-// Add styles for the debugger UI
-const style = document.createElement('style');
-style.textContent = `
-  .debugger-panel {
-    font-family: system-ui, sans-serif;
-    background: #1e1e1e;
-    color: #e0e0e0;
-    border-radius: 4px;
-    padding: 1rem;
-    margin-top: 1rem;
-  }
-  
-  .debugger-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-  }
-  
-  .debugger-controls {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-  
-  .debugger-controls button {
-    background: #333;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    width: 2rem;
-    height: 2rem;
-    cursor: pointer;
-    font-size: 1rem;
-  }
-  
-  .debugger-controls button:hover {
-    background: #444;
-  }
-  
-  .timeline {
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    margin-bottom: 1rem;
-  }
-  
-  .timeline-track {
-    width: 100%;
-    height: 4px;
-    background: #333;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  
-  .timeline-point {
-    width: 12px;
-    height: 12px;
-    background: #555;
-    border-radius: 50%;
-    cursor: pointer;
-  }
-  
-  .timeline-point.active {
-    background: #61afef;
-    transform: scale(1.2);
-  }
-  
-  .code-location {
-    font-family: monospace;
-    background: #252525;
-    padding: 0.5rem;
-    border-radius: 4px;
-    margin-bottom: 1rem;
-  }
-  
-  .variables-panel {
-    font-family: monospace;
-    max-height: 300px;
-    overflow-y: auto;
-  }
-  
-  .variable {
-    padding: 0.5rem;
-    border-bottom: 1px solid #333;
-    display: flex;
-    justify-content: space-between;
-  }
-  
-  .variable.changed {
-    background: rgba(97, 175, 239, 0.1);
-    border-left: 3px solid #61afef;
-  }
-  
-  .var-name {
-    font-weight: bold;
-    margin-right: 1rem;
-  }
-  
-  .undefined { color: #888; }
-  .null { color: #888; }
-  .boolean { color: #d19a66; }
-  .number { color: #d19a66; }
-  .string { color: #98c379; }
-  .object { color: #61afef; }
-`;
-document.head.appendChild(style);

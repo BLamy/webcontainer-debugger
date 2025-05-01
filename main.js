@@ -5,21 +5,15 @@ import { files } from 'virtual:webcontainer-files';
 
 // CodeMirror Imports - Corrected
 import { EditorState, StateEffect, StateField } from '@codemirror/state';
-import { EditorView, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, Decoration } from '@codemirror/view';
+import { EditorView, Decoration } from '@codemirror/view';
 import { basicSetup } from 'codemirror'; // basicSetup is often pulled from the main 'codemirror' package or composed manually
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { highlightSelectionMatches } from '@codemirror/search';
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-import { lintKeymap } from '@codemirror/lint';
-
 /** @type {import('@webcontainer/api').WebContainer}  */
 let webcontainerInstance;
 /** @type {EditorView} */
 let editorView;
-let currentHighlightMarker = null;
 let currentFile = 'utils.js';
-let currentHighlightDecoration = Decoration.none;
 
 // CodeMirror state field and effects for highlights
 const clearHighlightEffect = StateEffect.define();
@@ -63,9 +57,13 @@ function clearEditorHighlight() {
   }
 }
 
-// Function to update editor file and highlight line
+// Function to update editor highlight and status bar
 async function updateEditorHighlight(file, line) {
   console.log(`[Highlight] Request to highlight: File='${file}', Line=${line}`);
+  
+  // Update status bar
+  updateStatusPosition(file, line);
+  
   if (!editorView) {
       console.warn('[Highlight] EditorView not ready.');
       return;
@@ -76,16 +74,11 @@ async function updateEditorHighlight(file, line) {
   if (normalizedFile.startsWith('/')) {
     normalizedFile = normalizedFile.substring(1);
   }
-  // Handle any other necessary path normalization here
   
   console.log(`[Highlight] Normalized file path: '${normalizedFile}'`);
 
   const lineNumber = parseInt(line, 10);
-  // if (isNaN(lineNumber) || lineNumber < 1) {
-  //     console.warn(`[Highlight] Invalid line number: ${line}. Clearing highlight.`);
-      clearEditorHighlight();
-  //     return;
-  // }
+  clearEditorHighlight();
 
   try {
     // Check if we need to switch files
@@ -209,7 +202,7 @@ async function updateEditorHighlight(file, line) {
       scrollIntoView: true
     });
     
-    console.log(`[Highlight] Highlight applied to line ${lineNumber}.`);
+    console.log(`[Highlight] Highlight applied to line ${lineNumber+1}.`);
     
     // Force another scroll after a delay to ensure visibility
     setTimeout(() => {
@@ -224,20 +217,61 @@ async function updateEditorHighlight(file, line) {
 
 // Create placeholder HTML
 document.querySelector('#app').innerHTML = `
-  <div class="container">
-    <div class="editor">
-      <div class="tabs">
-        <button class="tab active" data-file="utils.js">utils.js</button>
-        <button class="tab" data-file="utils.test.js">utils.test.js</button>
+  <div class="app-container">
+    <div class="main-content">
+      <div class="editor-section">
+        <div class="editor-header">
+          <div class="tabs">
+            <button class="tab active" data-file="utils.js">utils.js</button>
+            <button class="tab" data-file="utils.test.js">utils.test.js</button>
+          </div>
+          <div class="editor-actions">
+            <button class="toggle-debugger" title="Toggle Debugger">🐞</button>
+          </div>
+        </div>
+        <div class="editor-container">
+          <div id="editor"></div>
+        </div>
       </div>
-      <div class="editor-container">
-        <div id="editor"></div>
+      
+      <div class="debugger-section" id="debugger-section">
+        <div class="debugger-tabs">
+          <button class="debugger-tab active" data-tab="debugger">DEBUGGER</button>
+          <button class="debugger-tab" data-tab="logs">LOGS</button>
+        </div>
+        
+        <div class="debugger-tab-content active" data-content="debugger">
+          <div class="debugger-layout">
+            <div class="test-list-panel">
+              <div class="test-list-header">TESTS</div>
+              <div class="test-list-container"></div>
+            </div>
+            <div class="debugger-panel" id="debugger-container">
+              <div class="debugger-panel-placeholder">
+                Select a test to debug
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="debugger-tab-content" data-content="logs">
+          <div class="test-output"></div>
+        </div>
       </div>
     </div>
-    <div class="results">
-      <h3>Test Results</h3>
-      <div class="test-output">Running tests...</div>
-      <div id="debugger-container"></div>
+    
+    <div class="status-bar">
+      <div class="status-indicator-container">
+        <span class="status-dot"></span>
+        <span class="status-text">Ready</span>
+      </div>
+      <div class="status-position" id="status-position">
+       
+      </div>
+      <div class="status-stats">
+        <span class="stats-item">TESTS: <span class="stats-passing">0</span>/<span class="stats-total">0</span></span>
+        <span class="stats-time">Last Run: 0 MS</span>
+      </div>
     </div>
   </div>
 `;
@@ -330,17 +364,51 @@ function handleEditorChange(newContent) {
   }
 }
 
+// Function to update status indicator
+function updateStatusIndicator(status, color = '#3BB446') {
+  const statusDot = document.querySelector('.status-dot');
+  const statusText = document.querySelector('.status-text');
+  const statusBar = document.querySelector('.status-bar');
+  
+  if (statusDot && statusText) {
+    statusDot.style.backgroundColor = color;
+    statusText.textContent = status;
+  }
+  
+  // Update status bar color based on status type
+  if (statusBar) {
+    if (color === '#F14C4C') { // Error/Failure
+      statusBar.style.backgroundColor = '#6F1717';
+    } else if (color === '#E0AF0B') { // In progress/warning
+      statusBar.style.backgroundColor = '#664D03';
+    } else { // Success/normal
+      statusBar.style.backgroundColor = '#007acc'; // Default blue
+    }
+  }
+}
+
 // Initialize editor on load
 window.addEventListener('load', async () => {
+  // Update status to initializing
+  updateStatusIndicator('Initializing...', '#E0AF0B');
+  
   // Setup editor with initial content *before* booting WebContainer
   setupEditor(files['utils.js'].file.contents);
 
   // Boot WebContainer
+  updateStatusIndicator('Booting WebContainer...', '#E0AF0B');
   webcontainerInstance = await WebContainer.boot();
   await webcontainerInstance.mount(files);
   window.webcontainerInstance = webcontainerInstance;
+  
   // Install dependencies
-  testOutputEl.textContent = 'Installing dependencies...';
+  updateStatusIndicator('Installing dependencies...', '#E0AF0B');
+  testOutputEl.innerHTML = `
+    <div class="loading-container">
+      <div class="loading-spinner"></div>
+      <div class="loading-message">Installing dependencies...</div>
+    </div>
+  `;
   const installProcess = await webcontainerInstance.spawn('npm', ['install']);
   
   installProcess.output.pipeTo(new WritableStream({
@@ -353,23 +421,33 @@ window.addEventListener('load', async () => {
   const exitCode = await installProcess.exit;
   
   if (exitCode !== 0) {
+    updateStatusIndicator('Installation failed', '#F14C4C');
     testOutputEl.textContent = 'Failed to install dependencies.';
     return;
   }
   
   // Run tests and collect debug steps
   await runTestsAndInitDebugger();
+  
+  // Update status to ready when everything is complete
+  updateStatusIndicator('Ready', '#3BB446');
 });
 
 async function runTestsAndInitDebugger() {
-  testOutputEl.textContent = 'Running tests...';
+  updateStatusIndicator('Running tests...', '#E0AF0B');
+  testOutputEl.innerHTML = `
+    <div class="loading-container">
+      <div class="loading-spinner"></div>
+      <div class="loading-message">Running tests...</div>
+    </div>
+  `;
 
   try {
     // Run the test runner script
     const testProcess = await webcontainerInstance.spawn('node', ['test-runner.js']);
 
     let output = '';
-    // let debugSteps = null; // We'll get steps dynamically now
+    let testStartTime = Date.now();
 
     // Capture output
     testProcess.output.pipeTo(new WritableStream({
@@ -381,85 +459,121 @@ async function runTestsAndInitDebugger() {
 
     // Wait for the test process to complete
     const exitCode = await testProcess.exit;
+    const testRunTime = Date.now() - testStartTime;
+    
+    // Update the stats time display
+    document.querySelector('.stats-time').textContent = `Last Run: ${testRunTime} MS`;
+
+    // Check test status
+    let testStatus = 'Tests completed';
+    let statusColor = '#3BB446';
+    
+    if (exitCode !== 0) {
+      testStatus = 'Tests failed';
+      statusColor = '#F14C4C';
+    }
+    
+    updateStatusIndicator(testStatus, statusColor);
 
     // After the test process completes, check for files created by the babel plugin
     console.log('Checking for debug files created by babel-plugin-timeTravel...');
 
-    const timeTravelDir = '/.timetravel';
+    // Define the time travel path
+    const timeTravelDir = '/.timetravel/DefaultSuite';
     let testSuitesData = {};
 
     try {
-        const suiteDirs = await webcontainerInstance.fs.readdir(timeTravelDir, { withFileTypes: true });
-
-        for (const suiteDir of suiteDirs) {
-            if (suiteDir.isDirectory()) {
-                const suitePath = `${timeTravelDir}/${suiteDir.name}`;
-                const suiteName = suiteDir.name;
-                testSuitesData[suiteName] = {};
-
+        // Log directory structure to help debug
+        console.log(`Listing contents of root directory:`);
+        try {
+            const rootContent = await webcontainerInstance.fs.readdir('/', { withFileTypes: true });
+            console.log('Root directory contents:', rootContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
+            
+            if (rootContent.some(entry => entry.name === '.timetravel' && entry.isDirectory())) {
+                console.log(`Found .timetravel directory, checking its contents:`);
                 try {
-                    const testDirs = await webcontainerInstance.fs.readdir(suitePath, { withFileTypes: true });
-                    for (const testDir of testDirs) {
-                        if (testDir.isDirectory()) {
-                            const testPath = `${suitePath}/${testDir.name}`;
-                            const testName = testDir.name;
-                            try {
-                                const stepFiles = await webcontainerInstance.fs.readdir(testPath);
-                                const jsonStepFiles = stepFiles
-                                    .filter(file => file.endsWith('.json') && !isNaN(parseInt(file.split('.')[0], 10))) // Ensure it's a numbered JSON
-                                    .map(file => ({ path: `${testPath}/${file}`, name: file }))
-                                    .sort((a, b) => {
-                                        const numA = parseInt(a.name.match(/(\d+)\.json$/)[1], 10);
-                                        const numB = parseInt(b.name.match(/(\d+)\.json$/)[1], 10);
-                                        return numA - numB;
-                                    })
-                                    .map(file => file.path); // Only store paths
-
-                                if (jsonStepFiles.length > 0) {
-                                  testSuitesData[suiteName][testName] = jsonStepFiles;
-                                } else {
-                                  console.warn(`No JSON step files found in ${testPath}`);
-                                }
-                            } catch (readErr) {
-                                console.error(`Error reading test directory ${testPath}:`, readErr);
-                            }
+                    const timetravelContent = await webcontainerInstance.fs.readdir('/.timetravel', { withFileTypes: true });
+                    console.log('.timetravel contents:', timetravelContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
+                    
+                    // If DefaultSuite exists, check that too
+                    if (timetravelContent.some(entry => entry.name === 'DefaultSuite' && entry.isDirectory())) {
+                        console.log(`Found DefaultSuite directory, checking tests:`);
+                        try {
+                            const defaultSuiteContent = await webcontainerInstance.fs.readdir(timeTravelDir, { withFileTypes: true });
+                            console.log('DefaultSuite contents:', defaultSuiteContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
+                        } catch (e) {
+                            console.error(`Error reading DefaultSuite directory:`, e);
                         }
                     }
-                } catch (suiteReadErr) {
-                    console.error(`Error reading suite directory ${suitePath}:`, suiteReadErr)
+                } catch (e) {
+                    console.error(`Error reading .timetravel directory:`, e);
+                }
+            }
+        } catch (e) {
+            console.error(`Error listing root directory:`, e);
+        }
+
+        // Read test directories directly from the DefaultSuite folder
+        console.log(`Attempting to read test directories from ${timeTravelDir}`);
+        const testDirs = await webcontainerInstance.fs
+          .readdir(timeTravelDir, { withFileTypes: true })
+        console.log(`Found ${testDirs.length} test directories:`, testDirs.map(dir => dir.name));
+        
+        // DefaultSuite is now our only suite
+        const suiteName = "DefaultSuite";
+        testSuitesData[suiteName] = {};
+        
+        for (const testDir of testDirs) {
+            if (testDir.isDirectory()) {
+                if (testDir.name === 'UnknownTest') continue;
+                const testPath = `${timeTravelDir}/${testDir.name}`;
+                const testName = testDir.name;
+                try {
+                    console.log(`Reading test directory: ${testPath}`);
+                    const stepFiles = await webcontainerInstance.fs.readdir(testPath);
+                    console.log(`Found ${stepFiles.length} files in ${testPath}:`, stepFiles);
+                    
+                    const jsonStepFiles = stepFiles
+                        .filter(file => file.endsWith('.json') && !isNaN(parseInt(file.split('.')[0], 10)))
+                        .map(file => ({ path: `${testPath}/${file}`, name: file }))
+                        .sort((a, b) => {
+                            const numA = parseInt(a.name.split('.')[0], 10);
+                            const numB = parseInt(b.name.split('.')[0], 10);
+                            return numA - numB;
+                        })
+                        .map(file => file.path);
+
+                    console.log(`Filtered to ${jsonStepFiles.length} JSON step files`);
+
+                    if (jsonStepFiles.length > 0) {
+                        testSuitesData[suiteName][testName] = jsonStepFiles;
+                        console.log(`Added ${jsonStepFiles.length} steps for test ${testName}:`, jsonStepFiles);
+                    } else {
+                        console.warn(`No JSON step files found in ${testPath}`);
+                    }
+                } catch (readErr) {
+                    console.error(`Error reading test directory ${testPath}:`, readErr);
                 }
             }
         }
-        console.log('Test Suites Data:', testSuitesData);
+        
+        console.log('Final Test Suites Data:', testSuitesData);
 
         // Pass testSuitesData to the display function
-        displayTestResults(output, testSuitesData); // Use the new display function
+        displayTestResults(output, testSuitesData);
 
     } catch (error) {
         if (error.code !== 'ENOENT') { // Ignore if .timetravel doesn't exist
-          console.error('Error reading time travel directory:', error);
+            console.error('Error reading time travel directory:', error);
         } else {
-          console.log('Time travel directory /.timetravel not found.');
+            console.log('Time travel directory not found:', timeTravelDir);
         }
         // Display original output if reading fails or dir not found
         testOutputEl.innerHTML = formatTestOutput(output);
-         // Ensure debugger container is cleared if there's an error loading data
-         const debuggerContainer = document.getElementById('debugger-container');
-         debuggerContainer.innerHTML = '';
+        // Ensure debugger container is cleared if there's an error loading data
+        const debuggerContainer = document.getElementById('debugger-container');
+        debuggerContainer.innerHTML = '';
     }
-
-    // Remove the old DebuggerPanel initialization here
-    // // Set up the debugger if we have debug steps
-    // if (debugSteps && Array.isArray(debugSteps)) {
-    //   // Expose debug steps globally for debugging
-    //   window.__debugSteps = debugSteps;
-    //
-    //   // Initialize the debugger panel
-    //   const debuggerContainer = document.getElementById('debugger-container');
-    //   const debuggerPanel = new DebuggerPanel(debuggerContainer);
-    // } else {
-    //   console.error('No debug steps found in test output.');
-    // }
   } catch (e) {
     testOutputEl.textContent = `Error running tests: ${e.message}`;
     console.error('Error running tests:', e);
@@ -469,38 +583,153 @@ async function runTestsAndInitDebugger() {
   }
 }
 
+// Set up debugger tab functionality and toggle after DOM is loaded
+window.addEventListener('load', function() {
+  // Set up debugger toggle
+  const toggleButton = document.querySelector('.toggle-debugger');
+  const debuggerSection = document.getElementById('debugger-section');
+  
+  // Show debugger by default
+  debuggerSection.classList.remove('hidden');
+  toggleButton.classList.add('active');
+  
+  toggleButton.addEventListener('click', () => {
+    const isVisible = !debuggerSection.classList.contains('hidden');
+    if (isVisible) {
+      debuggerSection.classList.add('hidden');
+      toggleButton.classList.remove('active');
+    } else {
+      debuggerSection.classList.remove('hidden');
+      toggleButton.classList.add('active');
+    }
+  });
+  
+  // Set up tab switching
+  const debuggerTabs = document.querySelectorAll('.debugger-tab');
+  debuggerTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Update active tab
+      debuggerTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      // Show corresponding content
+      const tabName = tab.dataset.tab;
+      const tabContents = document.querySelectorAll('.debugger-tab-content');
+      tabContents.forEach(content => {
+        content.classList.remove('active');
+      });
+      document.querySelector(`.debugger-tab-content[data-content="${tabName}"]`).classList.add('active');
+    });
+  });
+});
+
 // Function to display test results and the clickable test list
 function displayTestResults(rawOutput, testSuitesData) {
-  let html = formatTestOutput(rawOutput); // Format the raw console output first
+  // Update logs tab content
+  const outputEl = document.querySelector('.test-output');
+  outputEl.innerHTML = `
+    <input type="text" class="filter-input" placeholder="Filter (e.g. text @failed @todo @skipped @time>10)">
+    ${formatTestOutput(rawOutput)}
+  `;
+  
+  // Update test list for debugger
+  const testListContainer = document.querySelector('.test-list-container');
+  let testListHtml = '';
 
-  html += '<div class="debug-test-list"><h4>Debuggable Tests:</h4>';
+  const hasTestData = testSuitesData && 
+                     Object.keys(testSuitesData).length > 0 && 
+                     Object.values(testSuitesData).some(suite => Object.keys(suite).length > 0);
 
-  if (Object.keys(testSuitesData).length === 0) {
-    html += '<p>No debug data found.</p>';
+  // Count passing and failing tests from the output
+  let passingTests = 0;
+  let failingTests = 0;
+  let totalTests = 0;
+  
+  // Parse test results from the raw output
+  const testLines = rawOutput.split('\n');
+  for (const line of testLines) {
+    if (line.includes('✓')) {
+      passingTests++;
+      totalTests++;
+    } else if (line.includes('✗')) {
+      failingTests++;
+      totalTests++;
+    }
+  }
+
+  if (!hasTestData) {
+    testListHtml = `
+      <div class="no-data-message" style="padding: 20px;">
+        <div class="no-data-icon">ⓘ</div>
+        <div>No debug data found. Time travel debugging might not be enabled.</div>
+      </div>
+    `;
   } else {
-    html += '<ul>';
+    testListHtml = '<ul class="test-suite-list">';
     for (const suiteName in testSuitesData) {
-      html += `<li><strong>${suiteName}</strong><ul>`;
       const tests = testSuitesData[suiteName];
-      if (Object.keys(tests).length === 0) {
-         html += '<li>No tests with debug data in this suite.</li>';
+      const hasTests = Object.keys(tests).length > 0;
+      
+      testListHtml += `<li class="test-suite">
+        <div class="suite-header">
+          <span class="status-indicator status-pass"></span>
+          <span class="suite-name">${suiteName}</span>
+        </div>
+        <ul class="test-list">`;
+      
+      if (!hasTests) {
+         testListHtml += '<li class="no-tests-message">No tests with debug data in this suite.</li>';
       } else {
         for (const testName in tests) {
           const stepFiles = tests[testName];
-          // Add data attributes for suite, test, and the paths string
-          html += `<li class="debug-test-item" data-suite="${suiteName}" data-test="${testName}" data-steps='${JSON.stringify(stepFiles)}'>${testName} (${stepFiles.length} steps)</li>`;
+          
+          // Check if test name appears in a failing test line
+          const isFailing = testLines.some(line => 
+            line.includes('✗') && line.toLowerCase().includes(testName.toLowerCase())
+          );
+          
+          const statusClass = isFailing ? 'status-fail' : 'status-pass';
+          const statusSymbol = isFailing ? '✗' : '✓';
+          const statusColor = isFailing ? '#F14C4C' : '#3BB446';
+          
+          testListHtml += `
+            <li class="debug-test-item ${isFailing ? 'failing' : ''}" data-suite="${suiteName}" data-test="${testName}" data-steps='${JSON.stringify(stepFiles)}'>
+              <span class="test-status" style="color: ${statusColor}">${statusSymbol}</span>
+              <span class="test-name">${testName}</span>
+              <span class="test-steps">${stepFiles.length} steps</span>
+            </li>`;
         }
       }
-      html += '</ul></li>';
+      testListHtml += '</ul></li>';
     }
-    html += '</ul>';
+    testListHtml += '</ul>';
   }
-  html += '</div>';
+  
+  testListContainer.innerHTML = testListHtml;
 
-  testOutputEl.innerHTML = html;
-
-  // Add click listeners after rendering the list
+  // Add click listeners to test items
   addTestClickListeners();
+  
+  // Update test stats in status bar
+  if (totalTests === 0 && hasTestData) {
+    // If we couldn't parse test results but we have debug data, estimate from the debug data
+    totalTests = Object.values(testSuitesData)
+      .flatMap(suite => Object.keys(suite))
+      .length;
+    passingTests = totalTests; // Assume all passing until we have better data
+  }
+  
+  document.querySelector('.stats-total').textContent = totalTests;
+  document.querySelector('.stats-passing').textContent = passingTests;
+  
+  // Update the status indicator based on test results
+  if (failingTests > 0) {
+    updateStatusIndicator(`${failingTests} tests failed`, '#F14C4C');
+  } else if (passingTests > 0) {
+    updateStatusIndicator(`All ${passingTests} tests passed`, '#3BB446');
+  } else {
+    updateStatusIndicator('Tests completed', '#3BB446');
+  }
 }
 
 // Function to add click listeners to the test items
@@ -510,10 +739,11 @@ function addTestClickListeners() {
 
   testItems.forEach(item => {
     item.addEventListener('click', async (event) => {
-      console.log('Clicked test item:', event.target);
-      const stepPaths = JSON.parse(event.target.dataset.steps);
-      const suiteName = event.target.dataset.suite;
-      const testName = event.target.dataset.test;
+      console.log('Clicked test item:', event.target.closest('.debug-test-item'));
+      const clickedItem = event.target.closest('.debug-test-item');
+      const stepPaths = JSON.parse(clickedItem.dataset.steps);
+      const suiteName = clickedItem.dataset.suite;
+      const testName = clickedItem.dataset.test;
 
       console.log(`Loading steps for ${suiteName} -> ${testName}:`, stepPaths);
 
@@ -521,40 +751,110 @@ function addTestClickListeners() {
       clearEditorHighlight();
       
       // Clear previous debugger instance and content
-      debuggerContainer.innerHTML = 'Loading debug data...';
+      debuggerContainer.innerHTML = `
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <div class="loading-message">Loading debug data...</div>
+        </div>
+      `;
+
+      // Highlight the clicked item
+      document.querySelectorAll('.debug-test-item').forEach(el => {
+        el.classList.remove('selected');
+      });
+      clickedItem.classList.add('selected');
 
       try {
+        if (!stepPaths || stepPaths.length === 0) {
+          debuggerContainer.innerHTML = `
+            <div class="no-data">
+              <div class="no-data-message">
+                <div class="no-data-icon">ⓘ</div>
+                <div>No debug data available for this test</div>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
         const debugSteps = [];
         for (const path of stepPaths) {
           try {
-            const content = await webcontainerInstance.fs.readFile(path, 'utf-8');
-            debugSteps.push(JSON.parse(content));
+            console.log(`Reading step file: ${path}`);
+            let content = await webcontainerInstance.fs.readFile(path, 'utf-8');
+            
+            // Make sure we have valid JSON
+            content = content.trim();
+            console.log(`File content start: "${content.substring(0, 50)}..."`);
+            
+            try {
+              const parsedContent = JSON.parse(content);
+              console.log('Successfully parsed step data:', parsedContent);
+              debugSteps.push(parsedContent);
+            } catch (parseError) {
+              console.error('JSON parse error:', parseError);
+              console.log('Problematic content:', content);
+              throw new Error(`Parse error for ${path}: ${parseError.message}`);
+            }
           } catch (readError) {
-             console.error(`Failed to read or parse step file ${path}:`, readError);
-             // Optionally inform the user about the problematic file
-             debuggerContainer.innerHTML = `<p style="color: red;">Error loading step: ${path}. Check console.</p>`;
-             return; // Stop processing if a step fails
+            console.error(`Failed to read or parse step file ${path}:`, readError);
+            debuggerContainer.innerHTML = `
+              <div class="error">
+                <div class="error-message">
+                  <div class="error-icon">⚠</div>
+                  <div>Error loading step: ${path}<br><small>${readError.message}</small></div>
+                </div>
+              </div>
+            `;
+            return; // Stop processing if a step fails
           }
         }
 
-        console.log('Loaded debug steps:', debugSteps);
+        console.log(`Loaded ${debugSteps.length} debug steps:`, debugSteps);
 
         if (debugSteps.length > 0) {
-           // Expose debug steps globally for easier debugging if needed
-           window.__debugSteps = debugSteps;
+          // Expose debug steps globally for easier debugging if needed
+          window.__debugSteps = debugSteps;
 
-           // Clear loading message and initialize the debugger panel
-           debuggerContainer.innerHTML = ''; // Clear 'Loading...'
-           const debuggerPanel = new DebuggerPanel(debuggerContainer, debugSteps, updateEditorHighlight);
+          // Clear loading message and initialize the debugger panel
+          debuggerContainer.innerHTML = ''; // Clear 'Loading...'
+          const debuggerPanel = new DebuggerPanel(debuggerContainer, debugSteps, updateEditorHighlight);
+          
+          // Update status bar with current file and line
+          if (debugSteps[0].file && debugSteps[0].line) {
+            updateStatusPosition(debugSteps[0].file, debugSteps[0].line);
+          }
         } else {
-          debuggerContainer.innerHTML = '<p>No valid debug steps found for this test.</p>';
+          debuggerContainer.innerHTML = `
+            <div class="no-data">
+              <div class="no-data-message">
+                <div class="no-data-icon">ⓘ</div>
+                <div>No valid debug steps found for this test</div>
+              </div>
+            </div>
+          `;
         }
       } catch (error) {
         console.error('Error loading debug steps:', error);
-        debuggerContainer.innerHTML = '<p style="color: red;">Failed to load debug data. See console for details.</p>';
+        debuggerContainer.innerHTML = `
+          <div class="error">
+            <div class="error-message">
+              <div class="error-icon">⚠</div>
+              <div>Failed to load debug data: ${error.message}</div>
+            </div>
+          </div>
+        `;
       }
     });
   });
+}
+
+// Function to update the status position display
+function updateStatusPosition(file, line) {
+  const statusPosition = document.getElementById('status-position');
+  if (statusPosition) {
+    statusPosition.textContent = `${file}:${line}`;
+  }
 }
 
 function formatTestOutput(output) {
@@ -584,22 +884,3 @@ function formatTestOutput(output) {
   formatted += '</pre>';
   return formatted;
 }
-
-// Add CSS for the highlight
-const styleElement = document.createElement('style');
-styleElement.textContent = `
-.cm-debugger-highlight {
-  background-color: rgba(255, 165, 0, 0.3) !important;
-  text-decoration: none !important;
-  border-bottom: 2px solid orange !important;
-  padding-bottom: 1px;
-}
-
-/* Add a left border to the line containing the highlight */
-.cm-line:has(.cm-debugger-highlight) {
-  background-color: rgba(255, 235, 59, 0.15) !important;
-  border-left: 4px solid orange !important;
-  padding-left: 4px;
-}
-`;
-document.head.appendChild(styleElement);
