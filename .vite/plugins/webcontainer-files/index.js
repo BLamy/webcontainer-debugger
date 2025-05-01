@@ -3,12 +3,19 @@ import { fileURLToPath } from 'url';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 
-export default function webcontainerFilesPlugin() {
-  const virtualModuleId = 'virtual:webcontainer-files';
+// Accept options object, provide default
+export default function webcontainerFilesPlugin(options = {}) {
+  // Determine the virtual module ID from options or default
+  const virtualModuleId = options.moduleId || 'virtual:webcontainer-files';
   const resolvedVirtualModuleId = '\0' + virtualModuleId;
+
+  // Determine the target directory from options or default
+  const targetDirectory = options.directory || './webcontainer-files'; 
 
   return {
     name: 'webcontainer-files',
+    enforce: 'pre', // Make sure it runs before other plugins
+    
     resolveId(id) {
       if (id === virtualModuleId) {
         return resolvedVirtualModuleId;
@@ -18,7 +25,8 @@ export default function webcontainerFilesPlugin() {
       if (id === resolvedVirtualModuleId) {
         const rootDir = process.cwd();
         console.log(`[webcontainer-files plugin] Root directory: ${rootDir}`);
-        const webcontainerDir = resolve(rootDir, './webcontainer-files');
+        // Resolve the target directory relative to rootDir
+        const webcontainerDir = resolve(rootDir, targetDirectory); 
         const filesTree = {};
 
         console.log(`[webcontainer-files plugin] Loading files from: ${webcontainerDir}`);
@@ -31,26 +39,30 @@ export default function webcontainerFilesPlugin() {
 
           function readDirRecursive(dir, currentTree) {
             console.log(`[webcontainer-files plugin] Reading directory: ${dir}`);
-            const entries = readdirSync(dir, { withFileTypes: true });
-            
-            for (const entry of entries) {
-              const fullPath = join(dir, entry.name);
+            try {
+              const entries = readdirSync(dir, { withFileTypes: true });
               
-              if (entry.isDirectory()) {
-                // Create directory node
-                currentTree[entry.name] = { directory: {} };
-                // Continue recursion with the directory's contents
-                readDirRecursive(fullPath, currentTree[entry.name].directory);
-              } else {
-                // Create file node
-                const contents = readFileSync(fullPath, 'utf-8');
-                currentTree[entry.name] = {
-                  file: {
-                    contents
-                  }
-                };
-                console.log(`[webcontainer-files plugin] Added file: ${entry.name}`);
+              for (const entry of entries) {
+                const fullPath = join(dir, entry.name);
+                
+                if (entry.isDirectory()) {
+                  // Create directory node
+                  currentTree[entry.name] = { directory: {} };
+                  // Continue recursion with the directory's contents
+                  readDirRecursive(fullPath, currentTree[entry.name].directory);
+                } else {
+                  // Create file node
+                  const contents = readFileSync(fullPath, 'utf-8');
+                  currentTree[entry.name] = {
+                    file: {
+                      contents
+                    }
+                  };
+                  console.log(`[webcontainer-files plugin] Added file: ${entry.name}`);
+                }
               }
+            } catch (err) {
+              console.error(`[webcontainer-files plugin] Error reading directory ${dir}:`, err);
             }
           }
 
@@ -67,7 +79,8 @@ export default function webcontainerFilesPlugin() {
     configureServer(server) {
       // Watch for changes in the webcontainer directory
       const rootDir = process.cwd();
-      server.watcher.add(resolve(rootDir, 'src/wmcp/webcontainer-files/**/*'));
+      // Resolve the target directory for the watcher
+      server.watcher.add(resolve(rootDir, targetDirectory, '**/*')); 
     }
   };
 }

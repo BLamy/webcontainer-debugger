@@ -2,7 +2,7 @@
 export default {
   content: [
     "./index.html",
-    "./main.js",
+    "./index.js",
     "./DebuggerPanel.js",
     "./index.css"
   ],

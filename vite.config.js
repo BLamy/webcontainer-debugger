@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import webcontainerFilesPlugin from './.vite/plugins/webcontainer-files'
+import webcontainerFilesPlugin from './.vite/plugins/webcontainer-files/index.js'
 import tailwindcssPlugin from '@tailwindcss/postcss';
 import autoprefixer from 'autoprefixer';
 
@@ -16,7 +16,7 @@ export default defineConfig({
   },
   
   // Plugin configuration if needed
-  plugins: [webcontainerFilesPlugin()],
+  plugins: [webcontainerFilesPlugin({ directory: './webcontainer-files' })],
   
   // Customize server if needed
   server: {

@@ -1,6 +1,5 @@
 import './index.css'
 import { WebContainer } from '@webcontainer/api';
-import { DebuggerPanel } from './DebuggerPanel.js';
 import { files } from 'virtual:webcontainer-files';
 
 // CodeMirror Imports - Corrected
@@ -9,6 +8,193 @@ import { EditorView, Decoration } from '@codemirror/view';
 import { basicSetup } from 'codemirror'; // basicSetup is often pulled from the main 'codemirror' package or composed manually
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
+
+export class DebuggerPanel {
+  constructor(container, debugSteps, onStepChangeCallback) {
+    this.container = container;
+    this.steps = debugSteps || []; // Use passed steps, default to empty array
+    this.currentStep = 0;
+    this.onStepChange = onStepChangeCallback; // Store the callback
+    if (this.steps.length > 0) {
+       this.render();
+       this.setupListeners();
+       this.updateDisplay(); // Initial display update including callback trigger
+    } else {
+       this.container.innerHTML = '<p>No debug steps available for this test.</p>';
+    }
+  }
+
+  render() {
+    this.container.innerHTML = /* html */ `
+    <div class="wallaby-debugger flex flex-col h-full w-full overflow-hidden bg-[#252526] text-[#e0e0e0]">
+      <div class="debugger-controls flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-b border-[#333]">
+        <button class="btn-first w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="First Step">⏮️</button>
+        <button class="btn-prev  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Previous Step">◀️</button>
+        <div class="step-counter flex-1 text-center text-xs text-[#cccccc]">Step ${this.currentStep + 1} of ${this.steps.length}</div>
+        <button class="btn-next  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Next Step">▶️</button>
+        <button class="btn-last  w-7 h-7 flex items-center justify-center rounded-sm bg-[#3c3c3c] hover:bg-[#4c4c4c]" title="Last Step">⏭️</button>
+      </div>
+  
+      <div class="timeline h-[30px] flex items-center px-3 bg-[#2a2a2a]">
+        <div class="timeline-track w-full h-1 bg-[#3c3c3c] relative flex items-center justify-between"></div>
+      </div>
+  
+      <div class="variables-panel flex-1 overflow-y-auto pb-3"></div>
+    </div>
+  `;
+  }
+
+  setupListeners() {
+    this.container.querySelector('.btn-first').addEventListener('click', () => this.goToStep(0));
+    this.container.querySelector('.btn-prev').addEventListener('click', () => this.goToStep(this.currentStep - 1));
+    this.container.querySelector('.btn-next').addEventListener('click', () => this.goToStep(this.currentStep + 1));
+    this.container.querySelector('.btn-last').addEventListener('click', () => this.goToStep(this.steps.length - 1));
+  }
+
+  goToStep(step) {
+    if (step >= 0 && step < this.steps.length && step !== this.currentStep) {
+      console.log(`[DebuggerPanel] Moving from step ${this.currentStep} to step ${step}`);
+      this.currentStep = step;
+      
+      // Update UI immediately for responsiveness
+      this.container.querySelector('.step-counter').textContent = 
+        `Step ${this.currentStep + 1} of ${this.steps.length}`;
+      
+      // Update timeline points to reflect the new active step
+      const timelinePoints = this.container.querySelectorAll('.timeline-point');
+      timelinePoints.forEach((point, index) => {
+        if (index === this.currentStep) {
+          point.classList.add('active');
+        } else {
+          point.classList.remove('active');
+        }
+      });
+      
+      // Perform the full update
+      this.updateDisplay();
+    }
+  }
+
+  updateDisplay() {
+    this.container.querySelector('.step-counter').textContent = `Step ${this.currentStep + 1} of ${this.steps.length}`;
+    this.updateTimeline();
+    this.updateVariables();
+
+    const step = this.steps[this.currentStep];
+    if (step && this.onStepChange) {
+      // Ensure file path is properly normalized
+      let relativePath = step.file || '';
+      
+      // Normalize the path - strip leading slashes, handle empty paths
+      relativePath = relativePath.trim();
+      if (relativePath.startsWith('/')) {
+        relativePath = relativePath.substring(1);
+      }
+      
+      // If the file path doesn't include extension, try to add .js
+      if (relativePath && !relativePath.includes('.')) {
+        relativePath = `${relativePath}.js`;
+      }
+      
+      // Ensure line is a valid number (default to line 0 if not provided)
+      const lineNumber = step.line ? parseInt(step.line, 10) : 0;
+      
+      // Log the callback call for debugging
+      console.log(`[DebuggerPanel] Calling onStepChange with file='${relativePath}', line=${lineNumber}`);
+      
+      // Call the callback with normalized path and line number
+      this.onStepChange(relativePath, lineNumber);
+      
+      // Update status bar position
+      this.updateStatusPosition(relativePath, lineNumber);
+    }
+  }
+
+  updateTimeline() {
+    const track = this.container.querySelector('.timeline-track');
+    track.innerHTML = '';
+    
+    this.steps.forEach((step, index) => {
+      const point = document.createElement('div');
+      point.className = 'timeline-point';
+      if (index === this.currentStep) {
+        point.className += ' active';
+      }
+      point.addEventListener('click', () => this.goToStep(index));
+      point.setAttribute('title', `Step ${index + 1}`);
+      track.appendChild(point);
+    });
+  }
+
+  updateVariables() {
+    const panel = this.container.querySelector('.variables-panel');
+    panel.innerHTML = '';
+    
+    const step = this.steps[this.currentStep];
+    if (!step || !step.vars) return;
+    
+    // Compare with previous step to highlight changes
+    const prevStep = this.currentStep > 0 ? this.steps[this.currentStep - 1] : null;
+    
+    Object.entries(step.vars).forEach(([name, value]) => {
+      const varEl = document.createElement('div');
+      varEl.className = 'variable';
+      
+      // Check if value changed from previous step
+      let changed = false;
+      if (prevStep && prevStep.vars) {
+        const prevValue = prevStep.vars[name];
+        changed = JSON.stringify(prevValue) !== JSON.stringify(value);
+      }
+      
+      if (changed) {
+        varEl.className += ' changed';
+      }
+      
+      varEl.innerHTML = `
+        <span class="var-name">${name}</span>
+        <span class="var-value">${this.formatValue(value)}</span>
+      `;
+      
+      panel.appendChild(varEl);
+    });
+  }
+
+  updateStatusPosition(file, line) {
+    const statusPosition = document.getElementById('status-position');
+    if (statusPosition) {
+      statusPosition.textContent = `${file}:${line}`;
+    }
+  }
+
+  formatValue(value) {
+    if (value === undefined) return '<span class="undefined">undefined</span>';
+    if (value === null) return '<span class="null">null</span>';
+    
+    if (typeof value === 'object') {
+      try {
+        return `<span class="object">${JSON.stringify(value)}</span>`;
+      } catch (e) {
+        return '<span class="object">[Object]</span>';
+      }
+    }
+    
+    if (typeof value === 'boolean') {
+      return `<span class="boolean">${value}</span>`;
+    }
+    
+    if (typeof value === 'number') {
+      return `<span class="number">${value}</span>`;
+    }
+    
+    if (typeof value === 'string') {
+      return `<span class="string">"${value}"</span>`;
+    }
+    
+    return String(value);
+  }
+}
+
 /** @type {import('@webcontainer/api').WebContainer}  */
 let webcontainerInstance;
 /** @type {EditorView} */
@@ -457,7 +643,7 @@ async function runTestsAndInitDebugger() {
 
   try {
     // Run the test runner script
-    const testProcess = await webcontainerInstance.spawn('node', ['test-runner.js']);
+    const testProcess = await webcontainerInstance.spawn('npm', ['test', '--', 'utils.test.js']);
 
     let output = '';
     let testStartTime = Date.now();
@@ -492,89 +678,24 @@ async function runTestsAndInitDebugger() {
     console.log('Checking for debug files created by babel-plugin-timeTravel...');
 
     // Define the time travel path
-    const timeTravelDir = '/.timetravel/DefaultSuite';
-    let testSuitesData = {};
+    const timeTravelDir = '/.timetravel';
+   try {
+    const timetravelContent = await webcontainerInstance.fs.readdir(timeTravelDir, { withFileTypes: true });
+    const testSuitesData = await Promise.all(timetravelContent.filter(entry => !['DefaultSuite', 'UnknownTest'].includes(entry.name)).map( async (entry) => {
+      const suiteName = entry.name;
+      const suitePath = `${timeTravelDir}/${suiteName}`;
+      const suiteContent = await webcontainerInstance.fs.readdir(suitePath, { withFileTypes: true });
+      const testFiles = await Promise.all(suiteContent.filter(entry => entry.isFile() && entry.name.endsWith('.json')).map(async (file) => {
+        const filePath = `${suitePath}/${file.name}`;
+        const fileContent = await webcontainerInstance.fs.readFile(filePath, 'utf-8');
+        return JSON.parse(fileContent);
+      }));
+      return {
+        [suiteName]: testFiles
+      }
+    }));
 
-    try {
-        // Log directory structure to help debug
-        console.log(`Listing contents of root directory:`);
-        try {
-            const rootContent = await webcontainerInstance.fs.readdir('/', { withFileTypes: true });
-            console.log('Root directory contents:', rootContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
-            
-            if (rootContent.some(entry => entry.name === '.timetravel' && entry.isDirectory())) {
-                console.log(`Found .timetravel directory, checking its contents:`);
-                try {
-                    const timetravelContent = await webcontainerInstance.fs.readdir('/.timetravel', { withFileTypes: true });
-                    console.log('.timetravel contents:', timetravelContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
-                    
-                    // If DefaultSuite exists, check that too
-                    if (timetravelContent.some(entry => entry.name === 'DefaultSuite' && entry.isDirectory())) {
-                        console.log(`Found DefaultSuite directory, checking tests:`);
-                        try {
-                            const defaultSuiteContent = await webcontainerInstance.fs.readdir(timeTravelDir, { withFileTypes: true });
-                            console.log('DefaultSuite contents:', defaultSuiteContent.map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`));
-                        } catch (e) {
-                            console.error(`Error reading DefaultSuite directory:`, e);
-                        }
-                    }
-                } catch (e) {
-                    console.error(`Error reading .timetravel directory:`, e);
-                }
-            }
-        } catch (e) {
-            console.error(`Error listing root directory:`, e);
-        }
-
-        // Read test directories directly from the DefaultSuite folder
-        console.log(`Attempting to read test directories from ${timeTravelDir}`);
-        const testDirs = await webcontainerInstance.fs
-          .readdir(timeTravelDir, { withFileTypes: true })
-        console.log(`Found ${testDirs.length} test directories:`, testDirs.map(dir => dir.name));
-        
-        // DefaultSuite is now our only suite
-        const suiteName = "DefaultSuite";
-        testSuitesData[suiteName] = {};
-        
-        for (const testDir of testDirs) {
-            if (testDir.isDirectory()) {
-                if (testDir.name === 'UnknownTest') continue;
-                const testPath = `${timeTravelDir}/${testDir.name}`;
-                const testName = testDir.name;
-                try {
-                    console.log(`Reading test directory: ${testPath}`);
-                    const stepFiles = await webcontainerInstance.fs.readdir(testPath);
-                    console.log(`Found ${stepFiles.length} files in ${testPath}:`, stepFiles);
-                    
-                    const jsonStepFiles = stepFiles
-                        .filter(file => file.endsWith('.json') && !isNaN(parseInt(file.split('.')[0], 10)))
-                        .map(file => ({ path: `${testPath}/${file}`, name: file }))
-                        .sort((a, b) => {
-                            const numA = parseInt(a.name.split('.')[0], 10);
-                            const numB = parseInt(b.name.split('.')[0], 10);
-                            return numA - numB;
-                        })
-                        .map(file => file.path);
-
-                    console.log(`Filtered to ${jsonStepFiles.length} JSON step files`);
-
-                    if (jsonStepFiles.length > 0) {
-                        testSuitesData[suiteName][testName] = jsonStepFiles;
-                        console.log(`Added ${jsonStepFiles.length} steps for test ${testName}:`, jsonStepFiles);
-                    } else {
-                        console.warn(`No JSON step files found in ${testPath}`);
-                    }
-                } catch (readErr) {
-                    console.error(`Error reading test directory ${testPath}:`, readErr);
-                }
-            }
-        }
-        
-        console.log('Final Test Suites Data:', testSuitesData);
-
-        // Pass testSuitesData to the display function
-        displayTestResults(output, testSuitesData);
-
+    displayTestResults(output, testSuitesData);
     } catch (error) {
         if (error.code !== 'ENOENT') { // Ignore if .timetravel doesn't exist
             console.error('Error reading time travel directory:', error);
@@ -778,8 +899,11 @@ function addTestClickListeners() {
       clickedItem.classList.add('selected');
 
       try {
-        if (!stepPaths || stepPaths.length === 0) {
-          debuggerContainer.innerHTML = `
+        // Rename stepPaths to stepDataArray for clarity
+        const stepDataArray = stepPaths; 
+
+        if (!stepDataArray || stepDataArray.length === 0) {
+          debuggerContainer.innerHTML = /* html */ `
             <div class="no-data">
               <div class="no-data-message">
                 <div class="no-data-icon">ⓘ</div>
@@ -790,40 +914,10 @@ function addTestClickListeners() {
           return;
         }
 
-        const debugSteps = [];
-        for (const path of stepPaths) {
-          try {
-            console.log(`Reading step file: ${path}`);
-            let content = await webcontainerInstance.fs.readFile(path, 'utf-8');
-            
-            // Make sure we have valid JSON
-            content = content.trim();
-            console.log(`File content start: "${content.substring(0, 50)}..."`);
-            
-            try {
-              const parsedContent = JSON.parse(content);
-              console.log('Successfully parsed step data:', parsedContent);
-              debugSteps.push(parsedContent);
-            } catch (parseError) {
-              console.error('JSON parse error:', parseError);
-              console.log('Problematic content:', content);
-              throw new Error(`Parse error for ${path}: ${parseError.message}`);
-            }
-          } catch (readError) {
-            console.error(`Failed to read or parse step file ${path}:`, readError);
-            debuggerContainer.innerHTML = `
-              <div class="error">
-                <div class="error-message">
-                  <div class="error-icon">⚠</div>
-                  <div>Error loading step: ${path}<br><small>${readError.message}</small></div>
-                </div>
-              </div>
-            `;
-            return; // Stop processing if a step fails
-          }
-        }
-
-        console.log(`Loaded ${debugSteps.length} debug steps:`, debugSteps);
+        // The step data is already parsed from the data attribute.
+        // No need to read files here. The array *is* the data.
+        const debugSteps = stepDataArray; 
+        console.log(`Using pre-loaded ${debugSteps.length} debug steps:`, debugSteps);
 
         if (debugSteps.length > 0) {
           // Expose debug steps globally for easier debugging if needed

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { babel } from '@rollup/plugin-babel';
-import timeTravelPlugin from './babel-plugin-timeTravel.js';
+import debuggerInstrumentation from './.babel/plugins/debugger-instrumentation/index.js';
+import expectSoft from './.babel/plugins/expect-soft/index.js';
 
 export default defineConfig({
   plugins: [
@@ -9,12 +10,16 @@ export default defineConfig({
       configFile: false,
       // files to run through Babel
       extensions: ['.js', '.jsx', '.ts', '.tsx'],
-      plugins: [[timeTravelPlugin, { maxVars: 150 }]],
+      plugins: [[debuggerInstrumentation, { maxVars: 50 }], expectSoft],
     }),
   ],
 
   test: {
     environment: 'jsdom',
     include: ['**/*.test.js'],
+  },
+  workers: {
+    isolate: true,
+    threads: false
   }
 });
