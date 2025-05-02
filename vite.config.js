@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import webcontainerFilesPlugin from './.vite/plugins/webcontainer-files/index.js'
-import tailwindcssPlugin from '@tailwindcss/postcss';
-import autoprefixer from 'autoprefixer';
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   // Base path for GitHub Pages
@@ -16,7 +16,11 @@ export default defineConfig({
   },
   
   // Plugin configuration if needed
-  plugins: [webcontainerFilesPlugin({ directory: './webcontainer-files' })],
+  plugins: [
+    react(),
+    webcontainerFilesPlugin({ directory: './webcontainer-files' }),
+    tailwindcss(),
+  ],
   
   // Customize server if needed
   server: {
@@ -25,13 +29,5 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
-  },
-  css: {
-    postcss: {
-      plugins: [
-        tailwindcssPlugin,
-        autoprefixer,
-      ],
-    },
-  },
+  }
 });

@@ -15,7 +15,7 @@ export default defineConfig({
   ],
 
   test: {
-    environment: 'jsdom',
+    environment: 'node',
     include: ['**/*.test.js'],
   },
   workers: {

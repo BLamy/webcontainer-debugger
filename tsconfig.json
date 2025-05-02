@@ -17,7 +17,7 @@
   },
   "include": [
     "index.ts",
-    "types.d.ts"
+    "src/types.d.ts"
   ],
   "exclude": ["node_modules"]
 } 

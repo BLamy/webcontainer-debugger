@@ -2,12 +2,10 @@
     "name": "time-travel-debug-demo",
     "type": "module",
     "dependencies": {
-      "vite": "^4.1.0",
+      "vite": "^6.3.4",
       "vitest": "^3.1.2",
       "@babel/core": "^7.27.1",
-      "@rollup/plugin-babel": "^6.0.4",
-      "@babel/helper-plugin-utils": "^7.27.1",
-      "jsdom": "^26.1.0"
+      "@rollup/plugin-babel": "^6.0.4"
     },
     "scripts": {
       "test": "vitest run"
