@@ -80,7 +80,21 @@ const CodeEditor: FC<{
   useEffect(() => {
     if (!hostRef.current) return;
 
-    const initial = (files as any)[currentFile]?.file.contents ?? "";
+    const getFileContents = (path: string) => {
+      const parts = path.split('/');
+      let current: any = files;
+      
+      // Navigate through the path
+      for (let i = 0; i < parts.length; i++) {
+        if (current[parts[i]].file) return current[parts[i]].file.contents;
+        current = current[parts[i]].directory;
+      }
+      
+      return current?.file?.contents ?? "";
+    };
+    
+    const initial = getFileContents(currentFile);
+    // debugger
     const state = EditorState.create({
       doc: initial,
       extensions: [
@@ -107,10 +121,10 @@ const CodeEditor: FC<{
 /* ------------------------------------------------------------------ */
 /* DebuggerPanel                                                       */
 /* ------------------------------------------------------------------ */
-const DebuggerPanel: FC<{
+const DebuggerPanel= ({ steps, onStepSelect }:{
   steps: DebugStep[];
   onStepSelect: (s: DebugStep) => void;
-}> = ({ steps, onStepSelect }) => {
+}) => {
   const [idx, setIdx] = useState(0);
 
   useEffect(() => {
@@ -292,9 +306,7 @@ const WebContainerDebugger: FC = () => {
       setStatus({ text: "Running tests…", color: "#E0AF0B" });
       const t0 = performance.now();
       const proc = await webContainer.spawn("npm", [
-        "test",
-        "--",
-        "utils.test.js",
+        "test"
       ]);
       await proc.exit;
       const dt = Math.round(performance.now() - t0);
@@ -344,7 +356,7 @@ const WebContainerDebugger: FC = () => {
   const handleStepSelect = (step: DebugStep) => {
     // Extract just the filename from the full path
     // This handles paths like "home/dir/utils.js" or "/home/dir/utils.js"
-    const fileName = step.file.split("/").pop() || "";
+    const fileName = step.file.split("/").slice(3).join("/") || "";
 
     // Check if we need to switch files
     if (fileName !== currentFile) {
