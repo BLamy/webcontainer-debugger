@@ -67,7 +67,8 @@ export default function debuggerInstrumentation(babel) {
         const fs = require("fs");
         const path = require("path");
         const ensureDirSync = (dirPath) => {
-          const fullPath = path.join(process.cwd(), ${JSON.stringify(outDir)}, dirPath);
+          // resolve (not join) so an absolute outDir is honoured as-is
+          const fullPath = path.resolve(process.cwd(), ${JSON.stringify(outDir)}, dirPath);
           try {
             fs.mkdirSync(fullPath, { recursive: true });
           } catch (err) {

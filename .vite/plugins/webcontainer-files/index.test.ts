@@ -138,15 +138,55 @@ describe('webcontainer-files plugin', () => {
   it('should add watcher in dev mode', () => {
     const mockServer = {
       watcher: {
-        add: vi.fn()
-      }
+        add: vi.fn(),
+        on: vi.fn()
+      },
+      moduleGraph: {
+        getModuleById: vi.fn(),
+        invalidateModule: vi.fn()
+      },
+      ws: { send: vi.fn() }
     };
-    
+
     // Call configureServer
     plugin.configureServer?.(mockServer as any);
-    
-    // Check that watcher.add was called
-    expect(mockServer.watcher.add).toHaveBeenCalledWith(expect.stringContaining('webcontainer-files/**/*'));
+
+    // Check that watcher.add was called with the webcontainer directory
+    expect(mockServer.watcher.add).toHaveBeenCalledWith(expect.stringContaining('webcontainer-files'));
+    // Watches for file changes to invalidate the virtual module
+    expect(mockServer.watcher.on).toHaveBeenCalledWith('add', expect.any(Function));
+    expect(mockServer.watcher.on).toHaveBeenCalledWith('change', expect.any(Function));
+    expect(mockServer.watcher.on).toHaveBeenCalledWith('unlink', expect.any(Function));
+  });
+
+  it('invalidates the virtual module when a watched file changes', () => {
+    const fakeModule = { id: '\0virtual:webcontainer-files' };
+    const handlers: Record<string, (file: string) => void> = {};
+    const mockServer = {
+      watcher: {
+        add: vi.fn(),
+        on: vi.fn((event: string, cb: (file: string) => void) => {
+          handlers[event] = cb;
+        })
+      },
+      moduleGraph: {
+        getModuleById: vi.fn().mockReturnValue(fakeModule),
+        invalidateModule: vi.fn()
+      },
+      ws: { send: vi.fn() }
+    };
+
+    plugin.configureServer?.(mockServer as any);
+
+    // change inside the watched dir → invalidate + reload
+    handlers.change(join(tempDir, 'webcontainer-files', 'utils.js'));
+    expect(mockServer.moduleGraph.invalidateModule).toHaveBeenCalledWith(fakeModule);
+    expect(mockServer.ws.send).toHaveBeenCalledWith({ type: 'full-reload' });
+
+    // change outside the watched dir → ignored
+    mockServer.moduleGraph.invalidateModule.mockClear();
+    handlers.change(join(tempDir, 'elsewhere', 'other.js'));
+    expect(mockServer.moduleGraph.invalidateModule).not.toHaveBeenCalled();
   });
   
   // New test for custom directory option
