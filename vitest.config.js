@@ -18,6 +18,7 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['src/**/*.test.tsx', 'jsdom'],
     ],
+    setupFiles: ['./src/test-setup.ts'],
     transformMode: {
       web: [/\.[jt]sx?$/],
     },
