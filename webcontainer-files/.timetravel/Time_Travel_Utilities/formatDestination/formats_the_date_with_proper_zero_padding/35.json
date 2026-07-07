@@ -1,0 +1,17 @@
+{
+  "stepNumber": 35,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.js",
+  "line": 16,
+  "vars": {
+    "calculateDeloreanSpeed": "[Function]",
+    "day": 26,
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "isTimeTravelReady": "[Function]",
+    "month": 10,
+    "year": 1985
+  },
+  "ts": 1783381417130,
+  "suite": "Time_Travel_Utilities/formatDestination",
+  "test": "formats the date with proper zero padding"
+}

@@ -1,0 +1,20 @@
+{
+  "stepNumber": 7,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.test.js",
+  "line": 17,
+  "vars": {
+    "acceleration": 30,
+    "beforeEach": "[Function]",
+    "calculateDeloreanSpeed": "[Function]",
+    "describe": "[Function]",
+    "expect": "[Function]",
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "initialSpeed": 58,
+    "isTimeTravelReady": "[Function]",
+    "it": "[Function]"
+  },
+  "ts": 1783381417125,
+  "suite": "Time_Travel_Utilities/calculateDeloreanSpeed",
+  "test": "reaches 88mph with proper acceleration"
+}

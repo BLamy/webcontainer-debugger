@@ -60,314 +60,124 @@ export default function debuggerInstrumentation(babel) {
   /* -------------------------------------------------- *
    * Runtime stub (FS write & helpers)                  *
    * -------------------------------------------------- */
-  function createRuntimeStubAst() {
-    const requireFs = t.variableDeclaration("const", [
-      t.variableDeclarator(
-        t.identifier("fs"),
-        t.callExpression(t.identifier("require"), [t.stringLiteral("fs")])
-      ),
-    ]);
-    const requirePath = t.variableDeclaration("const", [
-      t.variableDeclarator(
-        t.identifier("path"),
-        t.callExpression(t.identifier("require"), [t.stringLiteral("path")])
-      ),
-    ]);
+  function createRuntimeStubAst(defaultSuite, outDir) {
+    const stub = babel.template.statement(
+      `
+      if (!globalThis.__recordStep) {
+        const fs = require("fs");
+        const path = require("path");
+        const ensureDirSync = (dirPath) => {
+          const fullPath = path.join(process.cwd(), ${JSON.stringify(outDir)}, dirPath);
+          try {
+            fs.mkdirSync(fullPath, { recursive: true });
+          } catch (err) {
+            if (err.code !== "EEXIST") {
+              console.error("[TimeTravelPlugin] Error creating directory ", err);
+              throw err;
+            }
+          }
+          return fullPath;
+        };
+        let stepNumber = 0;
+        globalThis.__resetStepCounter = () => {
+          stepNumber = 0;
+        };
+        globalThis.__currentSuite = globalThis.__currentSuite ?? ${JSON.stringify(
+          defaultSuite
+        )};
+        const safeStringify = (obj) => {
+          const seen = new WeakSet();
+          return JSON.stringify(
+            obj,
+            (key, value) => {
+              if (typeof value === "bigint") return value.toString() + "n";
+              if (typeof value === "function") return "[Function]";
+              if (typeof value === "symbol") return value.toString();
+              if (value && typeof value === "object") {
+                if (seen.has(value)) return "[Circular]";
+                seen.add(value);
+              }
+              return value;
+            },
+            2
+          );
+        };
+        let __tt_recording = false;
+        globalThis.__recordStep = (f, l, v, sName, tName) => {
+          // Re-entrancy guard: capturing vars can invoke user getters (and
+          // JSON.stringify invokes enumerable getters), which may themselves
+          // be instrumented and call __recordStep again — recursing forever.
+          if (__tt_recording) return;
+          __tt_recording = true;
+          try {
+            stepNumber++;
+            const clonedVars = {};
+            for (const k of Object.getOwnPropertyNames(v)) {
+              try {
+                clonedVars[k] = v[k];
+              } catch (_e) {
+                clonedVars[k] = undefined;
+              }
+            }
+            const stepData = {
+              stepNumber: stepNumber,
+              file: f,
+              line: l,
+              vars: clonedVars,
+              ts: Date.now(),
+              suite: sName,
+              test: tName,
+            };
+            const sanTest = String(tName)
+              .replace(/[\\s\\\\/?:*|"<>.()\\[\\]]/g, "_")
+              .replace(/_+/g, "_");
+            const dirPath = path.join(String(sName), sanTest);
+            const fullDirPath = ensureDirSync(dirPath);
+            const filePath = path.join(fullDirPath, stepNumber + ".json");
+            let json;
+            try {
+              json = safeStringify(stepData);
+            } catch (serErr) {
+              // A hostile value (e.g. a throwing enumerable getter) poisoned
+              // serialization. Retry var-by-var so one bad value doesn't
+              // drop the whole step.
+              const fallbackVars = {};
+              for (const k of Object.keys(clonedVars)) {
+                try {
+                  fallbackVars[k] = JSON.parse(safeStringify(clonedVars[k]) ?? "null");
+                } catch (_e) {
+                  fallbackVars[k] = "[Unserializable]";
+                }
+              }
+              stepData.vars = fallbackVars;
+              json = safeStringify(stepData);
+            }
+            fs.writeFileSync(filePath, json);
+          } catch (err) {
+            // Instrumentation must never break the code under test.
+            console.error("[TimeTravelPlugin] Failed to record step", err);
+          } finally {
+            __tt_recording = false;
+          }
+        };
+      }
+      `,
+      { preserveComments: true, placeholderPattern: false }
+    )();
 
-    // ensureDirSync
-    const ensureDirSync = t.variableDeclaration("const", [
-      t.variableDeclarator(
-        t.identifier("ensureDirSync"),
-        t.arrowFunctionExpression(
-          [t.identifier("dirPath")],
-          t.blockStatement([
-            t.variableDeclaration("const", [
-              t.variableDeclarator(
-                t.identifier("fullPath"),
-                t.callExpression(
-                  t.memberExpression(t.identifier("path"), t.identifier("join")),
-                  [
-                    t.callExpression(
-                      t.memberExpression(
-                        t.identifier("process"),
-                        t.identifier("cwd")
-                      ),
-                      []
-                    ),
-                    t.stringLiteral(".timetravel"),
-                    t.identifier("dirPath"),
-                  ]
-                )
-              ),
-            ]),
-            t.tryStatement(
-              t.blockStatement([
-                t.expressionStatement(
-                  t.callExpression(
-                    t.memberExpression(t.identifier("fs"), t.identifier("mkdirSync")),
-                    [
-                      t.identifier("fullPath"),
-                      t.objectExpression([
-                        t.objectProperty(
-                          t.identifier("recursive"),
-                          t.booleanLiteral(true)
-                        ),
-                      ]),
-                    ]
-                  )
-                ),
-              ]),
-              t.catchClause(
-                t.identifier("err"),
-                t.blockStatement([
-                  t.ifStatement(
-                    t.binaryExpression(
-                      "!==",
-                      t.memberExpression(t.identifier("err"), t.identifier("code")),
-                      t.stringLiteral("EEXIST")
-                    ),
-                    t.blockStatement([
-                      t.expressionStatement(
-                        t.callExpression(
-                          t.memberExpression(
-                            t.identifier("console"),
-                            t.identifier("error")
-                          ),
-                          [
-                            t.stringLiteral(
-                              "[TimeTravelPlugin] Error creating directory" +
-                                " "
-                            ),
-                            t.identifier("err"),
-                          ]
-                        )
-                      ),
-                      t.throwStatement(t.identifier("err")),
-                    ])
-                  ),
-                ])
-              )
-            ),
-            t.returnStatement(t.identifier("fullPath")),
-          ])
-        )
-      ),
-    ]);
+    stub._generated_by_babel_plugin_time_travel_stub = true;
+    // Mark every node in the stub so visitors skip it entirely.
+    (function markGenerated(node) {
+      if (!node || typeof node.type !== "string") return;
+      node._generated_by_plugin_ = true;
+      for (const key of Object.keys(node)) {
+        const value = node[key];
+        if (Array.isArray(value)) value.forEach(markGenerated);
+        else if (value && typeof value.type === "string") markGenerated(value);
+      }
+    })(stub);
 
-    // let stepNumber = 0;
-    const stepCounter = t.variableDeclaration("let", [
-      t.variableDeclarator(t.identifier("stepNumber"), t.numericLiteral(0)),
-    ]);
-
-    // __resetStepCounter
-    const resetFn = t.expressionStatement(
-      t.assignmentExpression(
-        "=",
-        t.memberExpression(t.identifier("globalThis"), t.identifier("__resetStepCounter")),
-        t.arrowFunctionExpression([], t.blockStatement([
-          t.expressionStatement(
-            t.assignmentExpression("=", t.identifier("stepNumber"), t.numericLiteral(0))
-          ),
-        ]))
-      )
-    );
-    resetFn.expression.right._generated_by_plugin_ = true;
-
-    // __recordStep body (unchanged except dir build)
-    const recordBody = t.blockStatement([
-      t.expressionStatement(t.updateExpression("++", t.identifier("stepNumber"), true)),
-      t.variableDeclaration("const", [
-        t.variableDeclarator(t.identifier("clonedVars"), t.objectExpression([])),
-      ]),
-      // clone vars safely
-      t.tryStatement(
-        t.blockStatement([
-          t.forOfStatement(
-            t.variableDeclaration("const", [
-              t.variableDeclarator(t.identifier("k")),
-            ]),
-            t.callExpression(
-              t.memberExpression(
-                t.identifier("Object"),
-                t.identifier("getOwnPropertyNames")
-              ),
-              [t.identifier("v")]
-            ),
-            t.blockStatement([
-              t.tryStatement(
-                t.blockStatement([
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      "=",
-                      t.memberExpression(t.identifier("clonedVars"), t.identifier("k"), true),
-                      t.memberExpression(t.identifier("v"), t.identifier("k"), true)
-                    )
-                  ),
-                ]),
-                t.catchClause(
-                  t.identifier("_e"),
-                  t.blockStatement([
-                    t.expressionStatement(
-                      t.assignmentExpression(
-                        "=",
-                        t.memberExpression(t.identifier("clonedVars"), t.identifier("k"), true),
-                        t.identifier("undefined")
-                      )
-                    ),
-                  ])
-                )
-              ),
-            ])
-          ),
-        ]),
-        t.catchClause(
-          t.identifier("_e2"),
-          t.blockStatement([
-            t.expressionStatement(
-              t.callExpression(
-                t.memberExpression(t.identifier("console"), t.identifier("error")),
-                [t.stringLiteral("[TimeTravelPlugin] Var clone error"), t.identifier("_e2")]
-              )
-            ),
-          ])
-        )
-      ),
-      // build record object
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          t.identifier("stepData"),
-          t.objectExpression([
-            t.objectProperty(t.identifier("stepNumber"), t.identifier("stepNumber")),
-            t.objectProperty(t.identifier("file"), t.identifier("f")),
-            t.objectProperty(t.identifier("line"), t.identifier("l")),
-            t.objectProperty(t.identifier("vars"), t.identifier("clonedVars")),
-            t.objectProperty(
-              t.identifier("ts"),
-              t.callExpression(
-                t.memberExpression(t.identifier("Date"), t.identifier("now")),
-                []
-              )
-            ),
-            t.objectProperty(t.identifier("suite"), t.identifier("sName")),
-            t.objectProperty(t.identifier("test"), t.identifier("tName")),
-          ])
-        ),
-      ]),
-      // sanitise + path
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          t.identifier("sanTest"),
-          t.callExpression(
-            t.memberExpression(
-              t.callExpression(
-                t.memberExpression(t.identifier("tName"), t.identifier("replace")),
-                [t.regExpLiteral("[\\s\\\\/?:*|\"<>.]", "g"), t.stringLiteral("_")]
-              ),
-              t.identifier("replace")
-            ),
-            [t.regExpLiteral("_+", "g"), t.stringLiteral("_")]
-          )
-        ),
-      ]),
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          t.identifier("dirPath"),
-          t.callExpression(
-            t.memberExpression(t.identifier("path"), t.identifier("join")),
-            [t.identifier("sName"), t.identifier("sanTest")]
-          )
-        ),
-      ]),
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          t.identifier("fullDirPath"),
-          t.callExpression(t.identifier("ensureDirSync"), [t.identifier("dirPath")])
-        ),
-      ]),
-      t.variableDeclaration("const", [
-        t.variableDeclarator(
-          t.identifier("filePath"),
-          t.callExpression(
-            t.memberExpression(t.identifier("path"), t.identifier("join")),
-            [
-              t.identifier("fullDirPath"),
-              t.templateLiteral(
-                [t.templateElement({ raw: "" }), t.templateElement({ raw: ".json" }, true)],
-                [t.identifier("stepNumber")]
-              ),
-            ]
-          )
-        ),
-      ]),
-      t.expressionStatement(
-        t.callExpression(
-          t.memberExpression(t.identifier("fs"), t.identifier("writeFileSync")),
-          [
-            t.identifier("filePath"),
-            t.callExpression(
-              t.memberExpression(t.identifier("JSON"), t.identifier("stringify")),
-              [t.identifier("stepData"), t.nullLiteral(), t.numericLiteral(2)]
-            ),
-          ]
-        )
-      ),
-    ]);
-
-    // __recordStep = (f,l,v,sName,tName) => { … }
-    const recordAssign = t.expressionStatement(
-      t.assignmentExpression(
-        "=",
-        t.memberExpression(t.identifier("globalThis"), t.identifier("__recordStep")),
-        t.arrowFunctionExpression(
-          [
-            t.identifier("f"),
-            t.identifier("l"),
-            t.identifier("v"),
-            t.identifier("sName"),
-            t.identifier("tName"),
-          ],
-          recordBody
-        )
-      )
-    );
-    recordAssign.expression.right._generated_by_plugin_ = true;
-
-    // helper: init __currentSuite if missing
-    const initCurrentSuite = t.expressionStatement(
-      t.assignmentExpression(
-        "=",
-        t.memberExpression(t.identifier("globalThis"), t.identifier("__currentSuite")),
-        t.logicalExpression(
-          "??",
-          t.memberExpression(t.identifier("globalThis"), t.identifier("__currentSuite")),
-          t.stringLiteral("<DEFAULT_SUITE_PLACEHOLDER>") // replaced during injection
-        )
-      )
-    );
-    initCurrentSuite._generated_by_plugin_ = true;
-
-    // final stub block
-    const stubBody = t.blockStatement([
-      requireFs,
-      requirePath,
-      ensureDirSync,
-      stepCounter,
-      resetFn,
-      initCurrentSuite,
-      recordAssign,
-    ]);
-    stubBody._generated_by_plugin_ = true;
-
-    const ifStmt = t.ifStatement(
-      t.unaryExpression(
-        "!",
-        t.memberExpression(t.identifier("globalThis"), t.identifier("__recordStep"))
-      ),
-      stubBody
-    );
-    ifStmt._generated_by_babel_plugin_time_travel_stub = true;
-
-    return [ifStmt];
+    return [stub];
   }
 
   /* -------------------------------------------------- *
@@ -478,31 +288,25 @@ export default function debuggerInstrumentation(babel) {
             if (p.isIfStatement() && p.node._generated_by_babel_plugin_time_travel_stub) hasStub = true;
           });
           if (!hasStub) {
-            const stubNodes = createRuntimeStubAst();
-            // replace default placeholder with real root suite name
             const defaultSuite = sanitizeForPath(state.opts?.suiteName || "DefaultSuite");
-            stubNodes[0].consequent.body.forEach(n => {
-              if (
-                t.isExpressionStatement(n) &&
-                n.expression.left &&
-                n.expression.left.property &&
-                n.expression.left.property.name === "__currentSuite"
-              ) {
-                n.expression.right.right = t.stringLiteral(defaultSuite);
-              }
-            });
-            programPath.unshiftContainer("body", stubNodes);
+            const outDir = state.opts?.outDir || ".timetravel";
+            programPath.unshiftContainer("body", createRuntimeStubAst(defaultSuite, outDir));
           }
         },
       },
       // -------------- describe / it wrappers --------------
-      CallExpression(path) {
+      CallExpression(path, state) {
         const callee = path.get("callee");
         if (!callee.isIdentifier()) return;
         const name = callee.node.name;
 
         // --------- DESCRIBE("…", fn) ---------
         if (name === "describe") {
+          // Guard against re-processing: replaceWith below requeues the new
+          // body for traversal, which would re-visit (and re-wrap) nested
+          // describe calls forever.
+          if (path.node._tt_suite_wrapped) return;
+          path.node._tt_suite_wrapped = true;
           const [titleNode, fnNode] = path.get("arguments");
           if (!titleNode?.isStringLiteral()) return;
           const suiteName = sanitizeForPath(titleNode.node.value);
@@ -578,13 +382,22 @@ export default function debuggerInstrumentation(babel) {
           ];
           popStmts.forEach(s => (s._generated_by_plugin_ = true));
 
-          bodyP.unshiftContainer("body", pushStmts);
-          bodyP.pushContainer("body",    popStmts);
+          // Wrap the original body in try/finally so the suite stack is
+          // popped even when the body returns early (e.g. concise arrow
+          // bodies rewritten to `return expr`) or throws.
+          const tryStmt = t.tryStatement(
+            t.blockStatement(bodyP.node.body),
+            null,
+            t.blockStatement(popStmts)
+          );
+          bodyP.replaceWith(t.blockStatement([...pushStmts, tryStmt]));
           return;
         }
 
         // --------- IT | TEST ("…", fn) -------------------------------------
         if (name === "it" || name === "test") {
+          if (path.node._tt_test_wrapped) return;
+          path.node._tt_test_wrapped = true;
           const [titleNode, fnNode] = path.get("arguments");
           if (!titleNode?.isStringLiteral()) return;
           if (!fnNode || !(fnNode.isFunctionExpression() || fnNode.isArrowFunctionExpression())) return;
@@ -593,6 +406,40 @@ export default function debuggerInstrumentation(babel) {
             bodyP.replaceWith(t.blockStatement([t.returnStatement(bodyP.node)]));
             bodyP = fnNode.get("body");
           }
+
+          // Compute the suite path statically from the enclosing describe()
+          // titles. Test runners like vitest execute describe callbacks at
+          // collection time but test bodies later, so the runtime suite
+          // stack is already unwound when the test actually runs. Assigning
+          // the statically-known path here keeps steps (including those
+          // recorded in helper modules the test calls into) in the right
+          // suite directory.
+          const suiteTitles = [];
+          let ancestor = path.parentPath;
+          while (ancestor) {
+            if (
+              ancestor.isCallExpression() &&
+              ancestor.get("callee").isIdentifier({ name: "describe" })
+            ) {
+              const title = ancestor.get("arguments")[0];
+              if (title?.isStringLiteral()) {
+                suiteTitles.unshift(sanitizeForPath(title.node.value));
+              }
+            }
+            ancestor = ancestor.parentPath;
+          }
+          const staticSuite = suiteTitles.length
+            ? suiteTitles.join("/")
+            : sanitizeForPath(state.opts?.suiteName || "DefaultSuite");
+
+          const assignSuite = t.expressionStatement(
+            t.assignmentExpression(
+              "=",
+              t.memberExpression(t.identifier("globalThis"), t.identifier("__currentSuite")),
+              t.stringLiteral(staticSuite)
+            )
+          );
+          assignSuite._generated_by_plugin_ = true;
           const assignTest = t.expressionStatement(
             t.assignmentExpression(
               "=",
@@ -601,7 +448,7 @@ export default function debuggerInstrumentation(babel) {
             )
           );
           assignTest._generated_by_plugin_ = true;
-          bodyP.unshiftContainer("body", assignTest);
+          bodyP.unshiftContainer("body", [assignSuite, assignTest]);
         }
       },
 
@@ -653,6 +500,16 @@ export default function debuggerInstrumentation(babel) {
         if (path.node._generated_by_plugin_) return;
         if (!path.node.body || !path.node.loc) return;
 
+        // Skip describe() callbacks — they execute at collection time, so
+        // an entry step would be misattributed to whatever suite/test
+        // happened to be current.
+        if (
+          path.parentPath.isCallExpression() &&
+          path.parentPath.get("callee").isIdentifier({ name: "describe" })
+        ) {
+          return;
+        }
+
         // Ensure body is a block
         let bodyP = path.get("body");
         if (!bodyP.isBlockStatement()) {
@@ -665,7 +522,20 @@ export default function debuggerInstrumentation(babel) {
 
         const rec = createRecorderStatement(path, state, path.node.loc.start.line, names);
         if (!rec) return;
-        bodyP.unshiftContainer("body", rec);
+
+        // Insert after any statements this plugin already injected at the
+        // top of the body (e.g. __currentSuite/__testName assignments for
+        // it/test callbacks) so the entry step is attributed correctly.
+        const body = bodyP.get("body");
+        let insertIdx = 0;
+        while (insertIdx < body.length && body[insertIdx].node._generated_by_plugin_) {
+          insertIdx++;
+        }
+        if (insertIdx === 0) {
+          bodyP.unshiftContainer("body", rec);
+        } else {
+          body[insertIdx - 1].insertAfter(rec);
+        }
       },
     },
   };

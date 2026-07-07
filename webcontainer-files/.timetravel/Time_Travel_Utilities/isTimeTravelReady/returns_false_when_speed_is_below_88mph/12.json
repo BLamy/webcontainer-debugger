@@ -1,0 +1,18 @@
+{
+  "stepNumber": 12,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.test.js",
+  "line": 24,
+  "vars": {
+    "beforeEach": "[Function]",
+    "calculateDeloreanSpeed": "[Function]",
+    "describe": "[Function]",
+    "expect": "[Function]",
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "isTimeTravelReady": "[Function]",
+    "it": "[Function]"
+  },
+  "ts": 1783381417126,
+  "suite": "Time_Travel_Utilities/isTimeTravelReady",
+  "test": "returns false when speed is below 88mph"
+}

@@ -315,15 +315,15 @@ describe('debuggerInstrumentation Babel plugin (real FS)', () => {
     expect(step3.vars).toMatchObject({ a: 1, b: 1, total: 2 });
 
 
-    // Step 5: AFTER line 9 (if (x !== 2))
+    // Step 4: AFTER line 12 (const x = add(1, 1);)
     const step5 = JSON.parse(fs.readFileSync(path.join(addDir, addFiles[3]), 'utf8'));
-    expect(step5.line).toBe(8);
+    expect(step5.line).toBe(12);
     expect(step5.stepNumber).toBe(4);
     expect(step5.vars).toMatchObject({ x: 2 });
 
-    // Step 6: After (throw new Error('x is not 2');)
+    // Step 5: AFTER line 13 (if (x !== 2))
     const step6 = JSON.parse(fs.readFileSync(path.join(addDir, addFiles[4]), 'utf8'));
-    expect(step6.line).toBe(9);
+    expect(step6.line).toBe(13);
     expect(step6.stepNumber).toBe(5);
     expect(step6.vars).toMatchObject({ x: 2 });
 

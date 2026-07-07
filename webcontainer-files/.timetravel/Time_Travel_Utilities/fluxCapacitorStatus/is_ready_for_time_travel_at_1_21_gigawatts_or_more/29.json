@@ -1,0 +1,16 @@
+{
+  "stepNumber": 29,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.js",
+  "line": 12,
+  "vars": {
+    "calculateDeloreanSpeed": "[Function]",
+    "energyLevel": 1.21,
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "isTimeTravelReady": "[Function]",
+    "status": "ready for time travel"
+  },
+  "ts": 1783381417129,
+  "suite": "Time_Travel_Utilities/fluxCapacitorStatus",
+  "test": "is ready for time travel at 1.21 gigawatts or more"
+}

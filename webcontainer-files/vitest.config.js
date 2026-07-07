@@ -16,7 +16,9 @@ export default defineConfig({
 
   test: {
     environment: 'node',
-    include: ['**/*.test.js'],
+    // Only the demo's own tests — the .babel plugin self-tests are run by
+    // the host repo's suite, not inside the container.
+    include: ['*.test.js'],
   },
   workers: {
     isolate: true,

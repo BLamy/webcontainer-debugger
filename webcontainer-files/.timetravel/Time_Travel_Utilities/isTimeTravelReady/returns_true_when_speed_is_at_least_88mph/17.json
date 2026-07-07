@@ -1,0 +1,15 @@
+{
+  "stepNumber": 17,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.js",
+  "line": 6,
+  "vars": {
+    "calculateDeloreanSpeed": "[Function]",
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "isTimeTravelReady": "[Function]",
+    "speed": 88
+  },
+  "ts": 1783381417127,
+  "suite": "Time_Travel_Utilities/isTimeTravelReady",
+  "test": "returns true when speed is at least 88mph"
+}

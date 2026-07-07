@@ -1,0 +1,15 @@
+{
+  "stepNumber": 24,
+  "file": "/home/user/webcontainer-debugger/webcontainer-files/utils.js",
+  "line": 11,
+  "vars": {
+    "calculateDeloreanSpeed": "[Function]",
+    "energyLevel": 1.2,
+    "fluxCapacitorStatus": "[Function]",
+    "formatDestination": "[Function]",
+    "isTimeTravelReady": "[Function]"
+  },
+  "ts": 1783381417128,
+  "suite": "Time_Travel_Utilities/fluxCapacitorStatus",
+  "test": "reports insufficient power when below 1.21 gigawatts"
+}

@@ -29,8 +29,8 @@ export const WebContainerProvider: FC<{ children: ReactNode }> = ({ children }) 
       try {
         setStatus("booting");
         const wcInstance = await WebContainer.boot();
-        if (process.env.NODE_ENV === "development") {
-          // @ts-expect-error
+        if (import.meta.env.DEV) {
+          // @ts-expect-error debugging handle, not part of Window typings
           window.webcontainerInstance = wcInstance;
         }
         setStatus("mounting");
