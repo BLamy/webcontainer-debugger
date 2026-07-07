@@ -6,7 +6,6 @@
 import React, {
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FC,
@@ -21,20 +20,12 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import "../index.css";
 // @ts-ignore – vite virtual files
 import { files } from "virtual:webcontainer-files";
-
-/* ------------------------------------------------------------------ */
-/* Types                                                               */
-/* ------------------------------------------------------------------ */
-interface DebugStep {
-  file: string;
-  line: number;
-  vars?: Record<string, unknown>;
-}
-interface TestSuiteData {
-  [suite: string]: {
-    [test: string]: DebugStep[];
-  };
-}
+import {
+  collectDebugData,
+  countTests,
+  type DebugStep,
+  type TestSuiteData,
+} from "./collectDebugData";
 
 /* ------------------------------------------------------------------ */
 /* CodeMirror highlight plumbing                                       */
@@ -57,14 +48,63 @@ const highlightField = StateField.define<DecorationSet>({
 /* ------------------------------------------------------------------ */
 /* Helper formatters                                                   */
 /* ------------------------------------------------------------------ */
-const formatVal = (v: unknown) => {
+export const formatVal = (v: unknown) => {
   if (v === undefined) return <span className="undefined">undefined</span>;
   if (v === null) return <span className="null">null</span>;
   if (typeof v === "boolean")
     return <span className="boolean">{String(v)}</span>;
   if (typeof v === "number") return <span className="number">{v}</span>;
   if (typeof v === "string") return <span className="string">"{v}"</span>;
-  return <span className="object">{JSON.stringify(v)}</span>;
+  try {
+    return <span className="object">{JSON.stringify(v)}</span>;
+  } catch {
+    return <span className="object">[Unserializable]</span>;
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* File tree helpers                                                   */
+/* ------------------------------------------------------------------ */
+export const getFileContents = (tree: any, filePath: string): string => {
+  const parts = filePath.split("/").filter(Boolean);
+  let current: any = tree;
+  for (const part of parts) {
+    const node = current?.[part];
+    if (!node) return "";
+    if (node.file) return typeof node.file.contents === "string" ? node.file.contents : "";
+    current = node.directory;
+  }
+  return "";
+};
+
+const setFileContents = (tree: any, filePath: string, code: string): boolean => {
+  const parts = filePath.split("/").filter(Boolean);
+  let current: any = tree;
+  for (const part of parts) {
+    const node = current?.[part];
+    if (!node) return false;
+    if (node.file) {
+      node.file.contents = code;
+      return true;
+    }
+    current = node.directory;
+  }
+  return false;
+};
+
+/** Map an absolute path recorded by Babel to one of the editor's files. */
+export const resolveEditorFile = (
+  stepFile: string,
+  available: string[]
+): string | null => {
+  if (!stepFile) return null;
+  const normalized = stepFile.replace(/\\/g, "/");
+  // longest suffix match against the known editor files
+  const match = available
+    .filter((f) => normalized === f || normalized.endsWith("/" + f))
+    .sort((a, b) => b.length - a.length)[0];
+  if (match) return match;
+  return null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -73,28 +113,14 @@ const formatVal = (v: unknown) => {
 const CodeEditor: FC<{
   currentFile: string;
   onChange: (code: string) => void;
-  onReady: (view: EditorView) => void;
+  onReady: (view: EditorView | null) => void;
 }> = ({ currentFile, onChange, onReady }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
 
-    const getFileContents = (path: string) => {
-      const parts = path.split('/');
-      let current: any = files;
-      
-      // Navigate through the path
-      for (let i = 0; i < parts.length; i++) {
-        if (current[parts[i]].file) return current[parts[i]].file.contents;
-        current = current[parts[i]].directory;
-      }
-      
-      return current?.file?.contents ?? "";
-    };
-    
-    const initial = getFileContents(currentFile);
-    // debugger
+    const initial = getFileContents(files, currentFile);
     const state = EditorState.create({
       doc: initial,
       extensions: [
@@ -111,41 +137,63 @@ const CodeEditor: FC<{
     const view = new EditorView({ state, parent: hostRef.current });
     onReady(view);
 
-    return () => view.destroy();
+    return () => {
+      onReady(null);
+      view.destroy();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFile]);
 
-  return <div ref={hostRef} className="h-full w-full" />;
+  return <div ref={hostRef} className="h-full w-full" data-testid="code-editor" />;
 };
 
 /* ------------------------------------------------------------------ */
 /* DebuggerPanel                                                       */
 /* ------------------------------------------------------------------ */
-const DebuggerPanel= ({ steps, onStepSelect }:{
+export const DebuggerPanel: FC<{
   steps: DebugStep[];
   onStepSelect: (s: DebugStep) => void;
-}) => {
+}> = ({ steps, onStepSelect }) => {
   const [idx, setIdx] = useState(0);
 
+  // A new set of steps (different test selected) must restart at step 0 —
+  // otherwise the index from the previous test leaks out of range.
   useEffect(() => {
-    if (steps.length) onStepSelect(steps[idx]);
-  }, [idx, steps, onStepSelect]);
+    setIdx(0);
+  }, [steps]);
+
+  const safeIdx = Math.min(idx, Math.max(0, steps.length - 1));
+
+  useEffect(() => {
+    if (steps.length && steps[safeIdx]) onStepSelect(steps[safeIdx]);
+  }, [safeIdx, steps, onStepSelect]);
 
   return (
     <div className="wallaby-debugger flex flex-col h-full w-full overflow-hidden bg-[#252526] text-[#e0e0e0] text-[13px]">
       {/* controls */}
       <div className="debugger-controls flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-b border-[#333] text-sm">
-        <button onClick={() => setIdx(0)}>⏮️</button>
-        <button onClick={() => setIdx((i) => Math.max(0, i - 1))}>◀️</button>
+        <button aria-label="First step" onClick={() => setIdx(0)}>⏮️</button>
+        <button
+          aria-label="Previous step"
+          onClick={() => setIdx((i) => Math.max(0, i - 1))}
+        >
+          ◀️
+        </button>
         <div className="flex-1 text-center text-xs">
-          Step {idx + 1}/{steps.length}
+          {steps.length ? `Step ${safeIdx + 1}/${steps.length}` : "No steps"}
         </div>
         <button
-          onClick={() => setIdx((i) => Math.min(steps.length - 1, i + 1))}
+          aria-label="Next step"
+          onClick={() => setIdx((i) => Math.min(Math.max(0, steps.length - 1), i + 1))}
         >
           ▶️
         </button>
-        <button onClick={() => setIdx(steps.length - 1)}>⏭️</button>
+        <button
+          aria-label="Last step"
+          onClick={() => setIdx(Math.max(0, steps.length - 1))}
+        >
+          ⏭️
+        </button>
       </div>
 
       {/* timeline */}
@@ -154,7 +202,7 @@ const DebuggerPanel= ({ steps, onStepSelect }:{
           {steps.map((_, i) => (
             <div
               key={i}
-              className={`timeline-point ${i === idx ? "active" : ""}`}
+              className={`timeline-point ${i === safeIdx ? "active" : ""}`}
               onClick={() => setIdx(i)}
             />
           ))}
@@ -163,11 +211,12 @@ const DebuggerPanel= ({ steps, onStepSelect }:{
 
       {/* vars */}
       <div className="variables-panel flex-1 overflow-y-auto pb-3">
-        {steps[idx]?.vars ? (
-          Object.entries(steps[idx].vars!).map(([k, v]) => {
+        {steps[safeIdx]?.vars && Object.keys(steps[safeIdx].vars!).length ? (
+          Object.entries(steps[safeIdx].vars!).map(([k, v]) => {
             const changed =
-              idx > 0 &&
-              JSON.stringify(steps[idx - 1]?.vars?.[k]) !== JSON.stringify(v);
+              safeIdx > 0 &&
+              JSON.stringify(steps[safeIdx - 1]?.vars?.[k]) !==
+                JSON.stringify(v);
             return (
               <div
                 key={k}
@@ -193,34 +242,42 @@ const DebuggerPanel= ({ steps, onStepSelect }:{
 /* ------------------------------------------------------------------ */
 /* TestList                                                            */
 /* ------------------------------------------------------------------ */
-const TestList: FC<{
-  tests: {
-    [test: string]: DebugStep[];
-  };
+export const TestList: FC<{
+  suites: TestSuiteData;
   onSelect: (steps: DebugStep[]) => void;
-}> = ({ tests = {}, onSelect }) => (
-  <div className="test-list-container h-full overflow-y-auto text-[13px]">
-    {Object.entries(tests).length === 0 && (
-      <div className="no-data-message p-4 text-[#888] text-center">
-        No tests with debug data.
-      </div>
-    )}
-    <ul>
-      {Object.entries(tests).map(([name, steps]) => (
-        <li
-          key={name}
-          className="debug-test-item flex justify-between px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer"
-          onClick={() => onSelect(Object.values(steps))}
-        >
-          <span className="test-name flex-1">{name}</span>
-          <span className="test-steps text-xs text-[#888]">
-            {Object.values(steps).length} steps
-          </span>
-        </li>
+}> = ({ suites = {}, onSelect }) => {
+  const suiteEntries = Object.entries(suites);
+  return (
+    <div className="test-list-container h-full overflow-y-auto text-[13px]">
+      {suiteEntries.length === 0 && (
+        <div className="no-data-message p-4 text-[#888] text-center">
+          No tests with debug data.
+        </div>
+      )}
+      {suiteEntries.map(([suiteName, tests]) => (
+        <div key={suiteName}>
+          <div className="suite-name px-3 py-1 text-xs uppercase tracking-wide text-[#7c7c7c] bg-[#2a2a2a]">
+            {suiteName.split("/").join(" › ")}
+          </div>
+          <ul>
+            {Object.entries(tests).map(([name, steps]) => (
+              <li
+                key={name}
+                className="debug-test-item flex justify-between px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer"
+                onClick={() => onSelect(steps)}
+              >
+                <span className="test-name flex-1">{name}</span>
+                <span className="test-steps text-xs text-[#888]">
+                  {steps.length} steps
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
-  </div>
-);
+    </div>
+  );
+};
 
 /* ------------------------------------------------------------------ */
 /* Main component                                                      */
@@ -239,6 +296,8 @@ const WebContainerDebugger: FC = () => {
 
   // CodeMirror view ref
   const viewRef = useRef<EditorView | null>(null);
+  // highlight retry when switching files (editor remounts async)
+  const pendingHighlight = useRef<number | null>(null);
 
   // available JS files
   const filesAvailable = ["utils.js", "utils.test.js"];
@@ -258,7 +317,7 @@ const WebContainerDebugger: FC = () => {
         setStatus({ text: "Not ready", color: "#E0AF0B" });
         break;
       case "error":
-        setStatus({ text: "Error", color: "#E0AF0B" });
+        setStatus({ text: "Error", color: "#D64545" });
         break;
     }
   }, [webContainerStatus]);
@@ -271,29 +330,26 @@ const WebContainerDebugger: FC = () => {
     const view = viewRef.current;
     if (!view) return;
     const { doc } = view.state;
-    if (line >= doc.lines) return;
+    // Babel line numbers are 1-based, and so is doc.line().
+    if (line < 1 || line > doc.lines) return;
     try {
-      const info = doc.line(line + 1);
+      const info = doc.line(line);
+      // Mark decorations may not be empty — highlight empty lines with a
+      // line decoration instead.
       const deco = Decoration.set([
-        Decoration.mark({
-          attributes: {
-            class: "cm-debugger-highlight",
-          },
-        }).range(info.from, info.to),
+        info.from === info.to
+          ? Decoration.line({
+              attributes: { class: "cm-debugger-highlight" },
+            }).range(info.from)
+          : Decoration.mark({
+              attributes: { class: "cm-debugger-highlight" },
+            }).range(info.from, info.to),
       ]);
       view.dispatch({
         effects: [addHighlight.of(deco)],
         selection: { anchor: info.from },
         scrollIntoView: true,
       });
-
-      setTimeout(() => {
-        if (!viewRef.current) return;
-        viewRef.current.dispatch({
-          selection: { anchor: info.from },
-          scrollIntoView: true,
-        });
-      }, 50);
     } catch (e) {
       console.error("Error highlighting line:", e);
     }
@@ -302,82 +358,76 @@ const WebContainerDebugger: FC = () => {
   /* ----------------- run tests & collect debug data -------------- */
   useEffect(() => {
     if (!webContainer || webContainerStatus !== "ready") return;
+    let cancelled = false;
     const run = async () => {
       setStatus({ text: "Running tests…", color: "#E0AF0B" });
       const t0 = performance.now();
-      const proc = await webContainer.spawn("npm", [
-        "test"
-      ]);
-      await proc.exit;
+      try {
+        const proc = await webContainer.spawn("npm", ["test"]);
+        await proc.exit;
+      } catch (e) {
+        if (!cancelled) setStatus({ text: "Test run failed", color: "#D64545" });
+        console.error("Failed to run tests:", e);
+        return;
+      }
       const dt = Math.round(performance.now() - t0);
 
-      // collect
-      const collected: TestSuiteData = {};
-      try {
-        const dirs = await webContainer.fs.readdir("/.timetravel", {
-          withFileTypes: true,
-        });
-        for (const dir of dirs.filter((d: any) => d.isDirectory())) {
-          const suite = dir.name;
-          if (["DefaultSuite", "UnknownTest"].includes(suite)) continue;
-          collected[suite] = {};
-          const filesDir = await webContainer.fs.readdir(
-            `/.timetravel/${suite}`,
-            {
-              withFileTypes: true,
-            }
-          );
-          for (const f of filesDir.filter((fd: any) =>
-            fd.name.endsWith(".json")
-          )) {
-            const testName = f.name.endsWith(".json")
-              ? f.name.slice(0, -5)
-              : f.name;
-            const jsonStr = await webContainer.fs.readFile(
-              `/.timetravel/${suite}/${f.name}`,
-              "utf-8"
-            );
-            collected[suite][testName] = JSON.parse(jsonStr);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
+      const collected = await collectDebugData(webContainer.fs as any);
+      if (cancelled) return;
 
-      const totalTests = Object.values(collected).length;
+      const totalTests = countTests(collected);
       setStats({ total: totalTests, passing: totalTests, time: `${dt}ms` });
       setSuites(collected);
       setStatus({ text: "Tests finished", color: "#3BB446" });
     };
     run();
-  }, [webContainer]);
+    return () => {
+      cancelled = true;
+    };
+  }, [webContainer, webContainerStatus]);
 
   /* ----------------- step selection -> highlight ----------------- */
   const handleStepSelect = (step: DebugStep) => {
-    // Extract just the filename from the full path
-    // This handles paths like "home/dir/utils.js" or "/home/dir/utils.js"
-    const fileName = step.file.split("/").slice(3).join("/") || "";
+    const fileName = resolveEditorFile(step.file, filesAvailable);
+    if (!fileName) {
+      // Step belongs to a file the editor doesn't show (e.g. config);
+      // keep the current file and just drop the highlight.
+      clearHighlightFx();
+      return;
+    }
 
-    // Check if we need to switch files
     if (fileName !== currentFile) {
-      console.log(
-        `Switching from ${currentFile} to ${fileName} (original: ${step.file})`
-      );
       setCurrentFile(fileName);
-
-      // Give the file change time to take effect before highlighting
-      setTimeout(() => {
+      // Editor remounts on file switch; highlight once it's ready.
+      if (pendingHighlight.current !== null)
+        window.clearTimeout(pendingHighlight.current);
+      pendingHighlight.current = window.setTimeout(() => {
         highlightLine(step.line);
+        pendingHighlight.current = null;
       }, 50);
     } else {
       highlightLine(step.line);
     }
   };
 
+  useEffect(
+    () => () => {
+      if (pendingHighlight.current !== null)
+        window.clearTimeout(pendingHighlight.current);
+    },
+    []
+  );
+
   /* ----------------- editor change ------------------------------- */
   const handleCodeChange = (code: string) => {
-    (files as any)[currentFile].file.contents = code;
-    if (webContainer) webContainer.fs.writeFile("/" + currentFile, code);
+    setFileContents(files, currentFile, code);
+    if (webContainer) {
+      webContainer.fs
+        .writeFile("/" + currentFile, code)
+        .catch((e: unknown) =>
+          console.error("Failed to sync file to container:", e)
+        );
+    }
   };
 
   /* ----------------- JSX ----------------------------------------- */
@@ -442,8 +492,7 @@ const WebContainerDebugger: FC = () => {
           <div className="flex flex-col w-[400px] border-l border-[#333] bg-[#252526]">
             {/* test list */}
             <div className="h-[300px] border-b border-[#333] overflow-hidden">
-              {/* @ts-expect-error fix this type */}
-              <TestList tests={suites} onSelect={setDebugSteps} />
+              <TestList suites={suites} onSelect={setDebugSteps} />
             </div>
 
             {/* step debugger */}

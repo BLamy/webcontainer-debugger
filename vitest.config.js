@@ -1,25 +1,24 @@
 import { defineConfig } from 'vitest/config';
 import webcontainerFilesPlugin from './.vite/plugins/webcontainer-files/index.js'
-import expectSoft from './webcontainer-files/.babel/plugins/expect-soft/index.js';
-import { babel } from '@rollup/plugin-babel';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [
     webcontainerFilesPlugin({ directory: './webcontainer-files' }),
-    babel({
-      babelrc: false,
-      configFile: false,
-      // files to run through Babel
-      extensions: ['.test.js', '.test.jsx', '.test.ts', '.test.tsx'],
-      plugins: [expectSoft],
-    }),
+    react(),
   ],
   test: {
     environment: 'node',
     include: [
-      '**/*.test.js',       
+      '**/*.test.js',
+      'src/**/*.test.{ts,tsx}',
       '.vite/plugins/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'
     ],
+    // Component tests need a DOM.
+    environmentMatchGlobs: [
+      ['src/**/*.test.tsx', 'jsdom'],
+    ],
+    setupFiles: ['./src/test-setup.ts'],
     transformMode: {
       web: [/\.[jt]sx?$/],
     },

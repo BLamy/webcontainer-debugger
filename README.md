@@ -17,7 +17,7 @@ This project combines two powerful technologies to enable in-browser debugging:
 
 ### WebContainer Files Plugin
 
-The `webcontainer-files.js` Vite plugin (located in `.vite/plugins/`) dynamically loads files from the `webcontainer-files` directory and makes them available to the WebContainer at runtime. This plugin:
+The `webcontainer-files` Vite plugin (located in `.vite/plugins/webcontainer-files/`) dynamically loads files from the `webcontainer-files` directory and makes them available to the WebContainer at runtime. This plugin:
 
 - Recursively reads the `webcontainer-files` directory
 - Builds a file tree structure compatible with WebContainer
@@ -37,7 +37,7 @@ export default defineConfig({
 
 ### Time Travel Babel Plugin
 
-The `babel-plugin-timeTravel.js` is a Babel plugin that runs inside the WebContainer to instrument JavaScript code for debugging. This plugin:
+The `debugger-instrumentation` plugin (located in `webcontainer-files/.babel/plugins/debugger-instrumentation/`) is a Babel plugin that runs inside the WebContainer to instrument JavaScript code for debugging. This plugin:
 
 - Adds instrumentation points at key locations in the code
 - Captures variable states at runtime
@@ -93,10 +93,26 @@ To manually deploy:
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Start development server
-npm run dev
+pnpm dev
+```
+
+## Testing
+
+```bash
+# Unit / integration tests (babel plugins, vite plugin, UI components)
+pnpm test
+
+# End-to-end tests (starts the dev server automatically)
+pnpm test:e2e
+
+# Point Playwright at a system Chromium if the pinned build isn't installed
+PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium pnpm test:e2e
+
+# Type checking
+pnpm typecheck
 ```
 
 ## Building for Production

@@ -79,8 +79,22 @@ export default function webcontainerFilesPlugin(options = {}) {
     configureServer(server) {
       // Watch for changes in the webcontainer directory
       const rootDir = process.cwd();
-      // Resolve the target directory for the watcher
-      server.watcher.add(resolve(rootDir, targetDirectory, '**/*')); 
+      const watchedDir = resolve(rootDir, targetDirectory);
+      server.watcher.add(watchedDir);
+
+      // Invalidate the virtual module (and reload) when files change,
+      // otherwise the generated tree goes stale after the first load.
+      const invalidate = (file) => {
+        if (!file.startsWith(watchedDir)) return;
+        const mod = server.moduleGraph.getModuleById(resolvedVirtualModuleId);
+        if (mod) {
+          server.moduleGraph.invalidateModule(mod);
+          server.ws.send({ type: 'full-reload' });
+        }
+      };
+      server.watcher.on('add', invalidate);
+      server.watcher.on('change', invalidate);
+      server.watcher.on('unlink', invalidate);
     }
   };
 }
